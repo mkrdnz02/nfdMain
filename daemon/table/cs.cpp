@@ -198,9 +198,9 @@ Cs::findRightmostAmongExact(const Interest& interest, iterator first, iterator l
 void
 Cs::dump()
 {
-  NFD_LOG_DEBUG("dump table");
+  NFD_LOG_INFO("dump table");
   for (const EntryImpl& entry : m_table) {
-    NFD_LOG_TRACE(entry.getFullName());
+    NFD_LOG_INFO(entry.getFullName());
   }
 }
 
