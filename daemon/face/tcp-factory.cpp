@@ -34,15 +34,20 @@ NFD_LOG_INIT(TcpFactory);
 NFD_REGISTER_PROTOCOL_FACTORY(TcpFactory);
 
 const std::string&
-TcpFactory::getId() noexcept
+TcpFactory::getId()
 {
   static std::string id("tcp");
   return id;
 }
 
+TcpFactory::TcpFactory(const CtorParams& params)
+  : ProtocolFactory(params)
+{
+}
+
 void
-TcpFactory::doProcessConfig(OptionalConfigSection configSection,
-                            FaceSystem::ConfigContext& context)
+TcpFactory::processConfig(OptionalConfigSection configSection,
+                          FaceSystem::ConfigContext& context)
 {
   // tcp
   // {
@@ -56,7 +61,7 @@ TcpFactory::doProcessConfig(OptionalConfigSection configSection,
 
   if (!configSection) {
     if (!context.isDryRun && !m_channels.empty()) {
-      NFD_LOG_WARN("Cannot disable TCP channels after initialization");
+      NFD_LOG_WARN("Cannot disable tcp4 and tcp6 channels after initialization");
     }
     return;
   }
@@ -112,44 +117,44 @@ TcpFactory::doProcessConfig(OptionalConfigSection configSection,
       "TCP channels or enable at least one channel type."));
   }
 
-  if (context.isDryRun) {
-    return;
-  }
+  if (!context.isDryRun) {
+    providedSchemes.insert("tcp");
 
-  providedSchemes.insert("tcp");
-
-  if (enableV4) {
-    tcp::Endpoint endpoint(ip::tcp::v4(), port);
-    auto v4Channel = this->createChannel(endpoint);
-    if (wantListen && !v4Channel->isListening()) {
-      v4Channel->listen(this->addFace, nullptr);
+    if (enableV4) {
+      tcp::Endpoint endpoint(ip::tcp::v4(), port);
+      shared_ptr<TcpChannel> v4Channel = this->createChannel(endpoint);
+      if (wantListen && !v4Channel->isListening()) {
+        v4Channel->listen(this->addFace, nullptr);
+      }
+      providedSchemes.insert("tcp4");
     }
-    providedSchemes.insert("tcp4");
-  }
-  else if (providedSchemes.count("tcp4") > 0) {
-    NFD_LOG_WARN("Cannot close tcp4 channel after its creation");
-  }
-
-  if (enableV6) {
-    tcp::Endpoint endpoint(ip::tcp::v6(), port);
-    auto v6Channel = this->createChannel(endpoint);
-    if (wantListen && !v6Channel->isListening()) {
-      v6Channel->listen(this->addFace, nullptr);
+    else if (providedSchemes.count("tcp4") > 0) {
+      NFD_LOG_WARN("Cannot close tcp4 channel after its creation");
     }
-    providedSchemes.insert("tcp6");
-  }
-  else if (providedSchemes.count("tcp6") > 0) {
-    NFD_LOG_WARN("Cannot close tcp6 channel after its creation");
-  }
 
-  m_local = std::move(local);
+    if (enableV6) {
+      tcp::Endpoint endpoint(ip::tcp::v6(), port);
+      shared_ptr<TcpChannel> v6Channel = this->createChannel(endpoint);
+      if (wantListen && !v6Channel->isListening()) {
+        v6Channel->listen(this->addFace, nullptr);
+      }
+      providedSchemes.insert("tcp6");
+    }
+    else if (providedSchemes.count("tcp6") > 0) {
+      NFD_LOG_WARN("Cannot close tcp6 channel after its creation");
+    }
+
+    m_local = std::move(local);
+  }
 }
 
 void
-TcpFactory::doCreateFace(const CreateFaceRequest& req,
-                         const FaceCreatedCallback& onCreated,
-                         const FaceCreationFailedCallback& onFailure)
+TcpFactory::createFace(const CreateFaceRequest& req,
+                       const FaceCreatedCallback& onCreated,
+                       const FaceCreationFailedCallback& onFailure)
 {
+  BOOST_ASSERT(req.remoteUri.isCanonical());
+
   if (req.localUri) {
     NFD_LOG_TRACE("Cannot create unicast TCP face with LocalUri");
     onFailure(406, "Unicast TCP faces cannot be created with a LocalUri");
@@ -207,7 +212,7 @@ TcpFactory::createChannel(const tcp::Endpoint& endpoint)
 }
 
 std::vector<shared_ptr<const Channel>>
-TcpFactory::doGetChannels() const
+TcpFactory::getChannels() const
 {
   return getChannelsFromMap(m_channels);
 }

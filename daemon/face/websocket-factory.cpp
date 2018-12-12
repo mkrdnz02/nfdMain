@@ -34,15 +34,20 @@ NFD_LOG_INIT(WebSocketFactory);
 NFD_REGISTER_PROTOCOL_FACTORY(WebSocketFactory);
 
 const std::string&
-WebSocketFactory::getId() noexcept
+WebSocketFactory::getId()
 {
   static std::string id("websocket");
   return id;
 }
 
+WebSocketFactory::WebSocketFactory(const CtorParams& params)
+  : ProtocolFactory(params)
+{
+}
+
 void
-WebSocketFactory::doProcessConfig(OptionalConfigSection configSection,
-                                  FaceSystem::ConfigContext& context)
+WebSocketFactory::processConfig(OptionalConfigSection configSection,
+                                FaceSystem::ConfigContext& context)
 {
   // websocket
   // {
@@ -86,32 +91,38 @@ WebSocketFactory::doProcessConfig(OptionalConfigSection configSection,
       "to disable WebSocket channels or enable at least one channel type."));
   }
 
-  if (context.isDryRun) {
-    return;
+  if (!enableV4 && enableV6) {
+    // websocketpp's IPv6 socket always accepts IPv4 connections.
+    BOOST_THROW_EXCEPTION(ConfigFile::Error("NFD does not allow pure IPv6 WebSocket channel."));
   }
 
-  if (!wantListen) {
-    if (!m_channels.empty()) {
-      NFD_LOG_WARN("Cannot disable WebSocket channels after initialization");
+  if (!context.isDryRun) {
+    if (!wantListen) {
+      if (!m_channels.empty()) {
+        NFD_LOG_WARN("Cannot close WebSocket channel after initialization");
+      }
+      return;
     }
-    return;
-  }
 
-  if (enableV4) {
-    websocket::Endpoint endpoint(ip::tcp::v4(), port);
-    auto v4Channel = this->createChannel(endpoint);
-    if (!v4Channel->isListening()) {
-      v4Channel->listen(this->addFace);
-    }
-  }
+    BOOST_ASSERT(enableV4);
+    websocket::Endpoint endpoint(enableV6 ? ip::tcp::v6() : ip::tcp::v4(), port);
 
-  if (enableV6) {
-    websocket::Endpoint endpoint(ip::tcp::v6(), port);
-    auto v6Channel = this->createChannel(endpoint);
-    if (!v6Channel->isListening()) {
-      v6Channel->listen(this->addFace);
+    auto channel = this->createChannel(endpoint);
+    if (!channel->isListening()) {
+      channel->listen(this->addFace);
+      if (m_channels.size() > 1) {
+        NFD_LOG_WARN("Adding WebSocket channel for new endpoint; cannot close existing channels");
+      }
     }
   }
+}
+
+void
+WebSocketFactory::createFace(const CreateFaceRequest& req,
+                             const FaceCreatedCallback& onCreated,
+                             const FaceCreationFailedCallback& onFailure)
+{
+  onFailure(406, "Unsupported protocol");
 }
 
 shared_ptr<WebSocketChannel>
@@ -123,11 +134,12 @@ WebSocketFactory::createChannel(const websocket::Endpoint& endpoint)
 
   auto channel = make_shared<WebSocketChannel>(endpoint);
   m_channels[endpoint] = channel;
+
   return channel;
 }
 
 std::vector<shared_ptr<const Channel>>
-WebSocketFactory::doGetChannels() const
+WebSocketFactory::getChannels() const
 {
   return getChannelsFromMap(m_channels);
 }

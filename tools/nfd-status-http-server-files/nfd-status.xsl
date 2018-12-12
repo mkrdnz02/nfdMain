@@ -112,8 +112,6 @@
         <th>Out Data</th>
         <th>In Nacks</th>
         <th>Out Nacks</th>
-        <th>Satisfied Interests</th>
-        <th>Unsatisfied Interests</th>
       </tr>
     </thead>
     <tbody>
@@ -133,8 +131,6 @@
         <td><xsl:value-of select="nfd:packetCounters/nfd:outgoingPackets/nfd:nData"/></td>
         <td><xsl:value-of select="nfd:packetCounters/nfd:incomingPackets/nfd:nNacks"/></td>
         <td><xsl:value-of select="nfd:packetCounters/nfd:outgoingPackets/nfd:nNacks"/></td>
-        <td><xsl:value-of select="nfd:packetCounters/nfd:nSatisfiedInterests"/></td>
-        <td><xsl:value-of select="nfd:packetCounters/nfd:nUnsatisfiedInterests"/></td>
       </tr>
     </tbody>
   </table>

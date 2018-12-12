@@ -26,7 +26,7 @@ NFD, e.g., in COPYING.md file.  If not, see <http://www.gnu.org/licenses/>.
 from waflib import Context, Logs, Utils
 import os, subprocess
 
-VERSION = '0.6.4'
+VERSION = '0.6.3'
 APPNAME = 'nfd'
 BUGREPORT = 'https://redmine.named-data.net/projects/nfd'
 URL = 'https://named-data.net/doc/NFD/'
@@ -41,16 +41,15 @@ def options(opt):
              tooldir=['.waf-tools'])
 
     nfdopt = opt.add_option_group('NFD Options')
-
     opt.addUnixOptions(nfdopt)
-    opt.addDependencyOptions(nfdopt, 'libresolv')
-    opt.addDependencyOptions(nfdopt, 'librt')
+    opt.addWebsocketOptions(nfdopt)
+
     opt.addDependencyOptions(nfdopt, 'libpcap')
     nfdopt.add_option('--without-libpcap', action='store_true', default=False,
                       help='Disable libpcap (Ethernet face support will be disabled)')
-    nfdopt.add_option('--without-systemd', action='store_true', default=False,
-                      help='Disable systemd integration')
-    opt.addWebsocketOptions(nfdopt)
+
+    opt.addDependencyOptions(nfdopt, 'librt')
+    opt.addDependencyOptions(nfdopt, 'libresolv')
 
     nfdopt.add_option('--with-tests', action='store_true', default=False,
                       help='Build unit tests')
@@ -88,22 +87,12 @@ def configure(conf):
                'pch', 'boost', 'dependency-checker', 'websocket',
                'doxygen', 'sphinx_build'])
 
-    if conf.options.with_tests:
-        conf.env.WITH_TESTS = True
-        conf.define('WITH_TESTS', 1)
-    if conf.options.with_other_tests:
-        conf.env.WITH_OTHER_TESTS = True
-        conf.define('WITH_OTHER_TESTS', 1)
-
     conf.find_program('bash', var='BASH')
 
     if 'PKG_CONFIG_PATH' not in os.environ:
         os.environ['PKG_CONFIG_PATH'] = Utils.subst_vars('${LIBDIR}/pkgconfig', conf.env)
     conf.check_cfg(package='libndn-cxx', args=['--cflags', '--libs'],
                    uselib_store='NDN_CXX', mandatory=True)
-
-    conf.check_cfg(package='libsystemd', args=['--cflags', '--libs'],
-                   uselib_store='SYSTEMD', mandatory=False)
 
     conf.checkDependency(name='librt', lib='rt', mandatory=False)
     conf.checkDependency(name='libresolv', lib='resolv', mandatory=False)
@@ -113,6 +102,14 @@ def configure(conf):
         Logs.warn('Dropping privileges is not supported on this platform')
 
     conf.check_cxx(header_name='valgrind/valgrind.h', define_name='HAVE_VALGRIND', mandatory=False)
+
+    if conf.options.with_tests:
+        conf.env.WITH_TESTS = True
+        conf.define('WITH_TESTS', 1)
+
+    if conf.options.with_other_tests:
+        conf.env.WITH_OTHER_TESTS = True
+        conf.define('WITH_OTHER_TESTS', 1)
 
     boost_libs = 'system chrono program_options thread log log_setup'
     if conf.options.with_tests or conf.options.with_other_tests:
@@ -125,13 +122,12 @@ def configure(conf):
                    ' (https://redmine.named-data.net/projects/nfd/wiki/Boost_FAQ)')
 
     conf.load('unix-socket')
+    conf.checkWebsocket(mandatory=True)
 
     if not conf.options.without_libpcap:
         conf.checkDependency(name='libpcap', lib='pcap', mandatory=True,
                              errmsg='not found, but required for Ethernet face support. '
                                     'Specify --without-libpcap to disable Ethernet face support.')
-
-    conf.checkWebsocket(mandatory=True)
 
     conf.check_compiler_flags()
 
@@ -205,7 +201,7 @@ def build(bld):
     bld.program(name='nfd',
                 target='bin/nfd',
                 source='daemon/main.cpp',
-                use='daemon-objects rib-objects SYSTEMD')
+                use='daemon-objects rib-objects')
 
     bld.recurse('tools')
     bld.recurse('tests')

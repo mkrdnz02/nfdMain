@@ -32,15 +32,27 @@
 namespace nfd {
 namespace face {
 
-/** \brief Protocol factory for TCP over IPv4 and IPv6
+/** \brief protocol factory for TCP over IPv4 and IPv6
  */
 class TcpFactory : public ProtocolFactory
 {
 public:
   static const std::string&
-  getId() noexcept;
+  getId();
 
-  using ProtocolFactory::ProtocolFactory;
+  explicit
+  TcpFactory(const CtorParams& params);
+
+  /** \brief process face_system.tcp config section
+   */
+  void
+  processConfig(OptionalConfigSection configSection,
+                FaceSystem::ConfigContext& context) override;
+
+  void
+  createFace(const CreateFaceRequest& req,
+             const FaceCreatedCallback& onCreated,
+             const FaceCreationFailedCallback& onFailure) override;
 
   /**
    * \brief Create TCP-based channel using tcp::Endpoint
@@ -56,21 +68,10 @@ public:
   shared_ptr<TcpChannel>
   createChannel(const tcp::Endpoint& localEndpoint);
 
-private:
-  /** \brief process face_system.tcp config section
-   */
-  void
-  doProcessConfig(OptionalConfigSection configSection,
-                  FaceSystem::ConfigContext& context) override;
-
-  void
-  doCreateFace(const CreateFaceRequest& req,
-               const FaceCreatedCallback& onCreated,
-               const FaceCreationFailedCallback& onFailure) override;
-
   std::vector<shared_ptr<const Channel>>
-  doGetChannels() const override;
+  getChannels() const override;
 
+private:
   ndn::nfd::FaceScope
   determineFaceScopeFromAddresses(const boost::asio::ip::address& local,
                                   const boost::asio::ip::address& remote) const;

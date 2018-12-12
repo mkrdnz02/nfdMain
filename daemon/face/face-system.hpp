@@ -39,7 +39,6 @@ class FaceTable;
 
 namespace face {
 
-class NetdevBound;
 class ProtocolFactory;
 struct ProtocolFactoryCtorParams;
 
@@ -69,9 +68,6 @@ public:
    */
   ProtocolFactory*
   getFactoryByScheme(const std::string& scheme);
-
-  bool
-  hasFactoryForScheme(const std::string& scheme) const;
 
   FaceTable&
   getFaceTable()
@@ -113,7 +109,6 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   /** \brief config section name => protocol factory
    */
   std::map<std::string, unique_ptr<ProtocolFactory>> m_factories;
-  unique_ptr<NetdevBound> m_netdevBound;
 
 private:
   /** \brief scheme => protocol factory
@@ -123,6 +118,7 @@ private:
   std::map<std::string, ProtocolFactory*> m_factoryByScheme;
 
   FaceTable& m_faceTable;
+
   shared_ptr<ndn::net::NetworkMonitor> m_netmon;
 };
 

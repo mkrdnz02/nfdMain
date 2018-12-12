@@ -91,7 +91,6 @@ public:
   }
 
 public: // configuration
-   void dump();
   /** \brief get capacity (in number of packets)
    */
   size_t
@@ -202,9 +201,9 @@ private: // find
   void
   setPolicyImpl(unique_ptr<Policy> policy);
 
-//PUBLIC_WITH_TESTS_ELSE_PRIVATE:
-  //void
-  //dump();
+PUBLIC_WITH_TESTS_ELSE_PRIVATE:
+  void
+  dump();
 
 private:
   Table m_table;
