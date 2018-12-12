@@ -29,6 +29,10 @@
 #include "nfd-manager-base.hpp"
 #include "face/face-system.hpp"
 
+#include <ndn-cxx/mgmt/nfd/face-status.hpp>
+#include <ndn-cxx/mgmt/nfd/face-query-filter.hpp>
+#include <ndn-cxx/mgmt/nfd/face-event-notification.hpp>
+
 namespace nfd {
 
 /**
@@ -42,35 +46,67 @@ public:
               Dispatcher& dispatcher,
               CommandAuthenticator& authenticator);
 
-private: // ControlCommand
+PUBLIC_WITH_TESTS_ELSE_PRIVATE: // ControlCommand
   void
-  createFace(const ControlParameters& parameters,
-             const ndn::mgmt::CommandContinuation& done);
-
-  void
-  updateFace(const Interest& interest,
+  createFace(const Name& topPrefix, const Interest& interest,
              const ControlParameters& parameters,
              const ndn::mgmt::CommandContinuation& done);
 
   void
-  destroyFace(const ControlParameters& parameters,
+  updateFace(const Name& topPrefix, const Interest& interest,
+             const ControlParameters& parameters,
+             const ndn::mgmt::CommandContinuation& done);
+
+  void
+  destroyFace(const Name& topPrefix, const Interest& interest,
+              const ControlParameters& parameters,
               const ndn::mgmt::CommandContinuation& done);
 
-private: // helpers for ControlCommand
+PUBLIC_WITH_TESTS_ELSE_PRIVATE: // helpers for ControlCommand
   void
-  afterCreateFaceSuccess(const shared_ptr<Face>& face,
-                         const ControlParameters& parameters,
+  afterCreateFaceSuccess(const ControlParameters& parameters,
+                         const shared_ptr<Face>& newFace,
                          const ndn::mgmt::CommandContinuation& done);
 
-private: // StatusDataset
   void
-  listFaces(ndn::mgmt::StatusDatasetContext& context);
+  afterCreateFaceFailure(uint32_t status,
+                         const std::string& reason,
+                         const ndn::mgmt::CommandContinuation& done);
+
+  static void
+  setLinkServiceOptions(Face& face, const ControlParameters& parameters);
+
+  static ControlParameters
+  collectFaceProperties(const Face& face, bool wantUris);
+
+PUBLIC_WITH_TESTS_ELSE_PRIVATE: // StatusDataset
+  void
+  listFaces(const Name& topPrefix, const Interest& interest,
+            ndn::mgmt::StatusDatasetContext& context);
 
   void
-  listChannels(ndn::mgmt::StatusDatasetContext& context);
+  listChannels(const Name& topPrefix, const Interest& interest,
+               ndn::mgmt::StatusDatasetContext& context);
 
   void
-  queryFaces(const Interest& interest, ndn::mgmt::StatusDatasetContext& context);
+  queryFaces(const Name& topPrefix, const Interest& interest,
+             ndn::mgmt::StatusDatasetContext& context);
+
+private: // helpers for StatusDataset handler
+  static bool
+  matchFilter(const ndn::nfd::FaceQueryFilter& filter, const Face& face);
+
+  /** \brief get status of face, including properties and counters
+   */
+  static ndn::nfd::FaceStatus
+  collectFaceStatus(const Face& face, const time::steady_clock::TimePoint& now);
+
+  /** \brief copy face properties into traits
+   *  \tparam FaceTraits either FaceStatus or FaceEventNotification
+   */
+  template<typename FaceTraits>
+  static void
+  collectFaceProperties(const Face& face, FaceTraits& traits);
 
 private: // NotificationStream
   void

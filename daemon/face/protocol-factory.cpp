@@ -1,6 +1,6 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * Copyright (c) 2014-2018,  Regents of the University of California,
+ * Copyright (c) 2014-2017,  Regents of the University of California,
  *                           Arizona Board of Regents,
  *                           Colorado State University,
  *                           University Pierre & Marie Curie, Sorbonne University,
@@ -24,7 +24,6 @@
  */
 
 #include "protocol-factory.hpp"
-
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
 
@@ -65,68 +64,6 @@ ProtocolFactory::ProtocolFactory(const CtorParams& params)
 {
   BOOST_ASSERT(addFace != nullptr);
   BOOST_ASSERT(netmon != nullptr);
-}
-
-ProtocolFactory::~ProtocolFactory() = default;
-
-void
-ProtocolFactory::processConfig(OptionalConfigSection configSection,
-                               FaceSystem::ConfigContext& context)
-{
-  doProcessConfig(configSection, context);
-}
-
-void
-ProtocolFactory::doProcessConfig(OptionalConfigSection,
-                                 FaceSystem::ConfigContext&)
-{
-}
-
-void
-ProtocolFactory::createFace(const CreateFaceRequest& req,
-                            const FaceCreatedCallback& onCreated,
-                            const FaceCreationFailedCallback& onFailure)
-{
-  BOOST_ASSERT(!FaceUri::canCanonize(req.remoteUri.getScheme()) ||
-               req.remoteUri.isCanonical());
-  BOOST_ASSERT(!req.localUri || !FaceUri::canCanonize(req.localUri->getScheme()) ||
-               req.localUri->isCanonical());
-  doCreateFace(req, onCreated, onFailure);
-}
-
-void
-ProtocolFactory::doCreateFace(const CreateFaceRequest&,
-                              const FaceCreatedCallback&,
-                              const FaceCreationFailedCallback& onFailure)
-{
-  onFailure(406, "Unsupported protocol");
-}
-
-shared_ptr<Face>
-ProtocolFactory::createNetdevBoundFace(const FaceUri& remote,
-                                       const shared_ptr<const ndn::net::NetworkInterface>& netif)
-{
-  BOOST_ASSERT(remote.isCanonical());
-  return doCreateNetdevBoundFace(remote, netif);
-}
-
-shared_ptr<Face>
-ProtocolFactory::doCreateNetdevBoundFace(const FaceUri&,
-                                         const shared_ptr<const ndn::net::NetworkInterface>&)
-{
-  BOOST_THROW_EXCEPTION(Error("This protocol factory does not support netdev-bound faces"));
-}
-
-std::vector<shared_ptr<const Channel>>
-ProtocolFactory::getChannels() const
-{
-  return doGetChannels();
-}
-
-std::vector<shared_ptr<const Channel>>
-ProtocolFactory::doGetChannels() const
-{
-  return {};
 }
 
 } // namespace face

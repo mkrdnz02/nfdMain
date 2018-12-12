@@ -26,7 +26,9 @@
 #include "nfd-rib-readvertise-destination.hpp"
 #include "core/logger.hpp"
 
+#include <ndn-cxx/mgmt/nfd/command-options.hpp>
 #include <ndn-cxx/mgmt/nfd/control-command.hpp>
+#include <ndn-cxx/mgmt/nfd/control-parameters.hpp>
 #include <ndn-cxx/mgmt/nfd/control-response.hpp>
 
 namespace nfd {
@@ -34,15 +36,15 @@ namespace rib {
 
 NFD_LOG_INIT(NfdRibReadvertiseDestination);
 
+using ndn::nfd::CommandOptions;
+using ndn::nfd::ControlParameters;
 using ndn::nfd::ControlResponse;
 
 NfdRibReadvertiseDestination::NfdRibReadvertiseDestination(ndn::nfd::Controller& controller,
-                                                           Rib& rib,
-                                                           const ndn::nfd::CommandOptions& options,
-                                                           const ndn::nfd::ControlParameters& parameters)
+                                                           const Name& commandPrefix,
+                                                           Rib& rib)
   : m_controller(controller)
-  , m_commandOptions(options)
-  , m_controlParameters(parameters)
+  , m_commandPrefix(commandPrefix)
 {
   m_ribInsertConn = rib.afterInsertEntry.connect(
     std::bind(&NfdRibReadvertiseDestination::handleRibInsert, this, _1));
@@ -55,13 +57,13 @@ NfdRibReadvertiseDestination::advertise(const nfd::rib::ReadvertisedRoute& rr,
                                         std::function<void()> successCb,
                                         std::function<void(const std::string&)> failureCb)
 {
-  NFD_LOG_DEBUG("advertise " << rr.prefix << " on " << m_commandOptions.getPrefix());
+  NFD_LOG_DEBUG("advertise " << rr.prefix << " on " << m_commandPrefix);
 
   m_controller.start<ndn::nfd::RibRegisterCommand>(
-    getControlParameters().setName(rr.prefix),
+    ControlParameters().setName(rr.prefix).setOrigin(ndn::nfd::ROUTE_ORIGIN_CLIENT),
     [=] (const ControlParameters& cp) { successCb(); },
     [=] (const ControlResponse& cr) { failureCb(cr.getText()); },
-    getCommandOptions().setSigningInfo(rr.signer));
+    CommandOptions().setPrefix(m_commandPrefix).setSigningInfo(rr.signer));
 }
 
 void
@@ -69,31 +71,19 @@ NfdRibReadvertiseDestination::withdraw(const nfd::rib::ReadvertisedRoute& rr,
                                        std::function<void()> successCb,
                                        std::function<void(const std::string&)> failureCb)
 {
-  NFD_LOG_DEBUG("withdraw " << rr.prefix << " on " << m_commandOptions.getPrefix());
+  NFD_LOG_DEBUG("withdraw " << rr.prefix << " on " << m_commandPrefix);
 
   m_controller.start<ndn::nfd::RibUnregisterCommand>(
-    getControlParameters().setName(rr.prefix),
+    ControlParameters().setName(rr.prefix).setOrigin(ndn::nfd::ROUTE_ORIGIN_CLIENT),
     [=] (const ControlParameters& cp) { successCb(); },
     [=] (const ControlResponse& cr) { failureCb(cr.getText()); },
-    getCommandOptions().setSigningInfo(rr.signer));
-}
-
-ndn::nfd::ControlParameters
-NfdRibReadvertiseDestination::getControlParameters()
-{
-  return m_controlParameters;
-}
-
-ndn::nfd::CommandOptions
-NfdRibReadvertiseDestination::getCommandOptions()
-{
-  return m_commandOptions;
+    CommandOptions().setPrefix(m_commandPrefix).setSigningInfo(rr.signer));
 }
 
 void
 NfdRibReadvertiseDestination::handleRibInsert(const ndn::Name& name)
 {
-  if (name.isPrefixOf(m_commandOptions.getPrefix())) {
+  if (name.isPrefixOf(m_commandPrefix)) {
     setAvailability(true);
   }
 }
@@ -101,7 +91,7 @@ NfdRibReadvertiseDestination::handleRibInsert(const ndn::Name& name)
 void
 NfdRibReadvertiseDestination::handleRibErase(const ndn::Name& name)
 {
-  if (name.isPrefixOf(m_commandOptions.getPrefix())) {
+  if (name.isPrefixOf(m_commandPrefix)) {
     setAvailability(false);
   }
 }

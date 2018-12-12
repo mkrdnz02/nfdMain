@@ -25,9 +25,9 @@
 
 #include "service.hpp"
 
+#include "auto-prefix-propagator.hpp"
 #include "fib-updater.hpp"
 #include "readvertise/client-to-nlsr-readvertise-policy.hpp"
-#include "readvertise/host-to-gateway-readvertise-policy.hpp"
 #include "readvertise/nfd-rib-readvertise-destination.hpp"
 #include "readvertise/readvertise.hpp"
 
@@ -51,8 +51,6 @@ static const std::string CFG_LOCALHOP_SECURITY = "localhop_security";
 static const std::string CFG_PREFIX_PROPAGATE = "auto_prefix_propagate";
 static const std::string CFG_READVERTISE_NLSR = "readvertise_nlsr";
 static const Name READVERTISE_NLSR_PREFIX = "/localhost/nlsr";
-static const uint64_t PROPAGATE_DEFAULT_COST = 15;
-static const time::milliseconds PROPAGATE_DEFAULT_TIMEOUT = 10_s;
 
 static ConfigSection
 loadConfigSectionFromFile(const std::string& filename)
@@ -107,11 +105,10 @@ Service::Service(ndn::KeyChain& keyChain, shared_ptr<ndn::Transport> localNfdTra
                  const ConfigParseFunc& configParse)
   : m_keyChain(keyChain)
   , m_face(std::move(localNfdTransport), getGlobalIoService(), m_keyChain)
-  , m_scheduler(m_face.getIoService())
   , m_nfdController(m_face, m_keyChain)
   , m_fibUpdater(m_rib, m_nfdController)
   , m_dispatcher(m_face, m_keyChain)
-  , m_ribManager(m_rib, m_face, m_keyChain, m_nfdController, m_dispatcher, m_scheduler)
+  , m_ribManager(m_rib, m_face, m_keyChain, m_nfdController, m_dispatcher)
 {
   if (s_instance != nullptr) {
     BOOST_THROW_EXCEPTION(std::logic_error("RIB service cannot be instantiated more than once"));
@@ -165,8 +162,8 @@ Service::checkConfig(const ConfigSection& section, const std::string& filename)
     const std::string& key = item.first;
     const ConfigSection& value = item.second;
     if (key == CFG_LOCALHOST_SECURITY || key == CFG_LOCALHOP_SECURITY) {
-      ndn::ValidatorConfig testValidator(m_face);
-      testValidator.load(value, filename);
+      ndn::security::v2::validator_config::ValidationPolicyConfig policy;
+      policy.load(value, filename);
     }
     else if (key == CFG_PREFIX_PROPAGATE) {
       // AutoPrefixPropagator does not support config dry-run
@@ -196,33 +193,12 @@ Service::applyConfig(const ConfigSection& section, const std::string& filename)
       m_ribManager.enableLocalhop(value, filename);
     }
     else if (key == CFG_PREFIX_PROPAGATE) {
-      wantPrefixPropagate = true;
-
-      if (!m_readvertisePropagation) {
-        NFD_LOG_DEBUG("Enabling automatic prefix propagation");
-
-        auto parameters = ndn::nfd::ControlParameters()
-          .setCost(PROPAGATE_DEFAULT_COST)
-          .setOrigin(ndn::nfd::ROUTE_ORIGIN_CLIENT);
-        auto cost = item.second.get_optional<uint64_t>("cost");
-        if (cost) {
-          parameters.setCost(*cost);
-        }
-
-        auto options = ndn::nfd::CommandOptions()
-          .setPrefix(RibManager::LOCALHOP_TOP_PREFIX)
-          .setTimeout(PROPAGATE_DEFAULT_TIMEOUT);
-        auto timeout = item.second.get_optional<uint64_t>("timeout");
-        if (timeout) {
-          options.setTimeout(time::milliseconds(*timeout));
-        }
-
-        m_readvertisePropagation = make_unique<Readvertise>(
-          m_rib,
-          m_scheduler,
-          make_unique<HostToGatewayReadvertisePolicy>(m_keyChain, item.second),
-          make_unique<NfdRibReadvertiseDestination>(m_nfdController, m_rib, options, parameters));
+      if (m_prefixPropagator == nullptr) {
+        m_prefixPropagator = make_unique<AutoPrefixPropagator>(m_nfdController, m_keyChain, m_rib);
       }
+      m_prefixPropagator->loadConfig(item.second);
+      m_prefixPropagator->enable();
+      wantPrefixPropagate = true;
     }
     else if (key == CFG_READVERTISE_NLSR) {
       wantReadvertiseNlsr = ConfigFile::parseYesNo(item, CFG_SECTION + "." + CFG_READVERTISE_NLSR);
@@ -232,19 +208,16 @@ Service::applyConfig(const ConfigSection& section, const std::string& filename)
     }
   }
 
-  if (!wantPrefixPropagate && m_readvertisePropagation != nullptr) {
-    NFD_LOG_DEBUG("Disabling automatic prefix propagation");
-    m_readvertisePropagation.reset();
+  if (!wantPrefixPropagate && m_prefixPropagator != nullptr) {
+    m_prefixPropagator->disable();
   }
 
   if (wantReadvertiseNlsr && m_readvertiseNlsr == nullptr) {
     NFD_LOG_DEBUG("Enabling readvertise-to-nlsr");
-    auto options = ndn::nfd::CommandOptions().setPrefix(READVERTISE_NLSR_PREFIX);
     m_readvertiseNlsr = make_unique<Readvertise>(
       m_rib,
-      m_scheduler,
       make_unique<ClientToNlsrReadvertisePolicy>(),
-      make_unique<NfdRibReadvertiseDestination>(m_nfdController, m_rib, options));
+      make_unique<NfdRibReadvertiseDestination>(m_nfdController, READVERTISE_NLSR_PREFIX, m_rib));
   }
   else if (!wantReadvertiseNlsr && m_readvertiseNlsr != nullptr) {
     NFD_LOG_DEBUG("Disabling readvertise-to-nlsr");

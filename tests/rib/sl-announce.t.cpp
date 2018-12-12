@@ -26,7 +26,6 @@
 #include "rib/rib-manager.hpp"
 
 #include "tests/identity-management-fixture.hpp"
-
 #include <ndn-cxx/util/dummy-client-face.hpp>
 
 namespace nfd {
@@ -41,21 +40,20 @@ public:
   using SlAnnounceResult = RibManager::SlAnnounceResult;
 
   RibManagerSlAnnounceFixture()
-    : m_face(g_io, m_keyChain)
-    , m_scheduler(g_io)
+    : m_face(getGlobalIoService(), m_keyChain)
     , m_nfdController(m_face, m_keyChain)
     , m_dispatcher(m_face, m_keyChain)
     , m_fibUpdater(rib, m_nfdController)
     , m_trustedSigner(m_keyChain.createIdentity("/trusted", ndn::RsaKeyParams()))
     , m_untrustedSigner(m_keyChain.createIdentity("/untrusted", ndn::RsaKeyParams()))
   {
-    rib.mockFibResponse = [] (const RibUpdateBatch&) { return true; };
+    rib.mockFibResponse = [] (const RibUpdateBatch& batch) { return true; };
     rib.wantMockFibResponseOnce = false;
 
     // Face, Controller, Dispatcher are irrelevant to SlAnnounce functions but required by
     // RibManager construction, so they are private. RibManager is a pointer to avoid code style
     // rule 1.4 violation.
-    manager = make_unique<RibManager>(rib, m_face, m_keyChain, m_nfdController, m_dispatcher, m_scheduler);
+    manager = make_unique<RibManager>(rib, m_face, m_keyChain, m_nfdController, m_dispatcher);
 
     loadTrustSchema();
   }
@@ -86,7 +84,7 @@ public:
         result = res;
       });
 
-    g_io.poll();
+    getGlobalIoService().poll();
     BOOST_CHECK(result);
     return result.value_or(SlAnnounceResult::ERROR);
   }
@@ -103,7 +101,7 @@ public:
         result = res;
       });
 
-    g_io.poll();
+    getGlobalIoService().poll();
     BOOST_CHECK(result);
     return result.value_or(SlAnnounceResult::ERROR);
   }
@@ -120,7 +118,7 @@ public:
         result = found;
       });
 
-    g_io.poll();
+    getGlobalIoService().poll();
     BOOST_CHECK(result);
     return result.value_or(nullopt);
   }
@@ -163,7 +161,6 @@ public:
 
 private:
   ndn::util::DummyClientFace m_face;
-  ndn::util::Scheduler m_scheduler;
   ndn::nfd::Controller m_nfdController;
   ndn::mgmt::Dispatcher m_dispatcher;
   FibUpdater m_fibUpdater;
@@ -248,7 +245,7 @@ BOOST_AUTO_TEST_CASE(RenewProlong_ArgLifetime)
   BOOST_CHECK_EQUAL(slAnnounceSync(pa, 4506, 2_h), SlAnnounceResult::OK);
   advanceClocks(1_h); // Route has 1_h remaining lifetime
 
-  BOOST_CHECK_EQUAL(slRenewSync("/P2IYFqtr/2321", 4506, 2_h), SlAnnounceResult::OK);
+  BOOST_CHECK_EQUAL(slRenewSync("/P2IYFqtr", 4506, 2_h), SlAnnounceResult::OK);
 
   Route* route = findAnnRoute("/P2IYFqtr", 4506);
   BOOST_REQUIRE(route != nullptr);
@@ -262,7 +259,7 @@ BOOST_AUTO_TEST_CASE(RenewProlong_AnnLifetime)
   BOOST_CHECK_EQUAL(slAnnounceSync(pa, 1589, 2_h), SlAnnounceResult::OK);
   advanceClocks(1_h); // Route has 1_h remaining lifetime
 
-  BOOST_CHECK_EQUAL(slRenewSync("/be01Yiba/4324", 1589, 5_h), SlAnnounceResult::OK);
+  BOOST_CHECK_EQUAL(slRenewSync("/be01Yiba", 1589, 5_h), SlAnnounceResult::OK);
 
   Route* route = findAnnRoute("/be01Yiba", 1589);
   BOOST_REQUIRE(route != nullptr);
@@ -276,7 +273,7 @@ BOOST_AUTO_TEST_CASE(RenewShorten)
   BOOST_CHECK_EQUAL(slAnnounceSync(pa, 3851, 4_h), SlAnnounceResult::OK);
   advanceClocks(1_h); // Route has 3_h remaining lifetime
 
-  BOOST_CHECK_EQUAL(slRenewSync("/5XCHYCAd/98934", 3851, 1_h), SlAnnounceResult::OK);
+  BOOST_CHECK_EQUAL(slRenewSync("/5XCHYCAd", 3851, 1_h), SlAnnounceResult::OK);
 
   Route* route = findAnnRoute("/5XCHYCAd", 3851);
   BOOST_REQUIRE(route != nullptr);
@@ -290,7 +287,7 @@ BOOST_AUTO_TEST_CASE(RenewShorten_Zero)
   BOOST_CHECK_EQUAL(slAnnounceSync(pa, 8031, 4_h), SlAnnounceResult::OK);
   advanceClocks(1_h); // Route has 3_h remaining lifetime
 
-  BOOST_CHECK_EQUAL(slRenewSync("/cdQ7KPNw/8023", 8031, 0_s), SlAnnounceResult::EXPIRED);
+  BOOST_CHECK_EQUAL(slRenewSync("/cdQ7KPNw", 8031, 0_s), SlAnnounceResult::EXPIRED);
 
   BOOST_CHECK(findAnnRoute("/cdQ7KPNw", 8031) == nullptr);
 }

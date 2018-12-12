@@ -1,6 +1,6 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * Copyright (c) 2014-2018,  Regents of the University of California,
+ * Copyright (c) 2014-2017,  Regents of the University of California,
  *                           Arizona Board of Regents,
  *                           Colorado State University,
  *                           University Pierre & Marie Curie, Sorbonne University,
@@ -130,7 +130,11 @@ public:
   class Error : public std::invalid_argument
   {
   public:
-    using std::invalid_argument::invalid_argument;
+    explicit
+    Error(const std::string& what)
+      : std::invalid_argument(what)
+    {
+    }
   };
 
   CommandDefinition(const std::string& noun, const std::string& verb);
@@ -191,12 +195,13 @@ public: // arguments
   parse(const std::vector<std::string>& tokens, size_t start = 0) const;
 
 private:
-  ndn::any
+  boost::any
   parseValue(ArgValueType valueType, const std::string& token) const;
 
 private:
   std::string m_noun;
   std::string m_verb;
+
   std::string m_title;
 
   struct Arg
@@ -206,7 +211,8 @@ private:
     bool isRequired;
     std::string metavar;
   };
-  std::map<std::string, Arg> m_args;
+  typedef std::map<std::string, Arg> ArgMap;
+  ArgMap m_args;
   std::set<std::string> m_requiredArgs;
   std::vector<std::string> m_positionalArgs;
 };

@@ -34,15 +34,20 @@ NFD_LOG_INIT(UnixStreamFactory);
 NFD_REGISTER_PROTOCOL_FACTORY(UnixStreamFactory);
 
 const std::string&
-UnixStreamFactory::getId() noexcept
+UnixStreamFactory::getId()
 {
   static std::string id("unix");
   return id;
 }
 
+UnixStreamFactory::UnixStreamFactory(const CtorParams& params)
+  : ProtocolFactory(params)
+{
+}
+
 void
-UnixStreamFactory::doProcessConfig(OptionalConfigSection configSection,
-                                   FaceSystem::ConfigContext& context)
+UnixStreamFactory::processConfig(OptionalConfigSection configSection,
+                                 FaceSystem::ConfigContext& context)
 {
   // unix
   // {
@@ -53,7 +58,7 @@ UnixStreamFactory::doProcessConfig(OptionalConfigSection configSection,
 
   if (!configSection) {
     if (!context.isDryRun && !m_channels.empty()) {
-      NFD_LOG_WARN("Cannot disable Unix channel after initialization");
+      NFD_LOG_WARN("Cannot disable unix channel after initialization");
     }
     return;
   }
@@ -72,14 +77,20 @@ UnixStreamFactory::doProcessConfig(OptionalConfigSection configSection,
     }
   }
 
-  if (context.isDryRun) {
-    return;
+  if (!context.isDryRun) {
+    auto channel = this->createChannel(path);
+    if (!channel->isListening()) {
+      channel->listen(this->addFace, nullptr);
+    }
   }
+}
 
-  auto channel = this->createChannel(path);
-  if (!channel->isListening()) {
-    channel->listen(this->addFace, nullptr);
-  }
+void
+UnixStreamFactory::createFace(const CreateFaceRequest& req,
+                              const FaceCreatedCallback& onCreated,
+                              const FaceCreationFailedCallback& onFailure)
+{
+  onFailure(406, "Unsupported protocol");
 }
 
 shared_ptr<UnixStreamChannel>
@@ -89,19 +100,29 @@ UnixStreamFactory::createChannel(const std::string& unixSocketPath)
   p = boost::filesystem::canonical(p.parent_path()) / p.filename();
   unix_stream::Endpoint endpoint(p.string());
 
-  auto it = m_channels.find(endpoint);
-  if (it != m_channels.end())
-    return it->second;
+  auto channel = findChannel(endpoint);
+  if (channel)
+    return channel;
 
-  auto channel = make_shared<UnixStreamChannel>(endpoint, m_wantCongestionMarking);
+  channel = make_shared<UnixStreamChannel>(endpoint, m_wantCongestionMarking);
   m_channels[endpoint] = channel;
   return channel;
 }
 
 std::vector<shared_ptr<const Channel>>
-UnixStreamFactory::doGetChannels() const
+UnixStreamFactory::getChannels() const
 {
   return getChannelsFromMap(m_channels);
+}
+
+shared_ptr<UnixStreamChannel>
+UnixStreamFactory::findChannel(const unix_stream::Endpoint& endpoint) const
+{
+  auto i = m_channels.find(endpoint);
+  if (i != m_channels.end())
+    return i->second;
+  else
+    return nullptr;
 }
 
 } // namespace face

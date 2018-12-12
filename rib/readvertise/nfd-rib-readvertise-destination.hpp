@@ -1,6 +1,6 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
-/*
- * Copyright (c) 2014-2018,  Regents of the University of California,
+/**
+ * Copyright (c) 2014-2017,  Regents of the University of California,
  *                           Arizona Board of Regents,
  *                           Colorado State University,
  *                           University Pierre & Marie Curie, Sorbonne University,
@@ -29,9 +29,7 @@
 #include "readvertise-destination.hpp"
 #include "../rib.hpp"
 
-#include <ndn-cxx/mgmt/nfd/command-options.hpp>
 #include <ndn-cxx/mgmt/nfd/controller.hpp>
-#include <ndn-cxx/mgmt/nfd/control-parameters.hpp>
 
 namespace nfd {
 namespace rib {
@@ -42,11 +40,8 @@ class NfdRibReadvertiseDestination : public ReadvertiseDestination
 {
 public:
   NfdRibReadvertiseDestination(ndn::nfd::Controller& controller,
-                               Rib& rib,
-                               const ndn::nfd::CommandOptions& options = ndn::nfd::CommandOptions(),
-                               const ndn::nfd::ControlParameters& parameters =
-                                 ndn::nfd::ControlParameters()
-                                   .setOrigin(ndn::nfd::ROUTE_ORIGIN_CLIENT));
+                               const Name& commandPrefix,
+                               Rib& rib);
 
   /** \brief add a name prefix into NFD RIB
    */
@@ -62,13 +57,6 @@ public:
            std::function<void()> successCb,
            std::function<void(const std::string&)> failureCb) override;
 
-protected:
-  ndn::nfd::ControlParameters
-  getControlParameters();
-
-  ndn::nfd::CommandOptions
-  getCommandOptions();
-
 private:
   void
   handleRibInsert(const Name& name);
@@ -78,12 +66,10 @@ private:
 
 private:
   ndn::nfd::Controller& m_controller;
+  Name m_commandPrefix;
 
   signal::ScopedConnection m_ribInsertConn;
   signal::ScopedConnection m_ribEraseConn;
-
-  ndn::nfd::CommandOptions m_commandOptions;
-  ndn::nfd::ControlParameters m_controlParameters;
 };
 
 } // namespace rib

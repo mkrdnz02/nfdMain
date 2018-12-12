@@ -24,9 +24,7 @@
  */
 
 #include "mgmt/cs-manager.hpp"
-
 #include "nfd-manager-common-fixture.hpp"
-
 #include <ndn-cxx/mgmt/nfd/cs-info.hpp>
 
 namespace nfd {
@@ -201,7 +199,7 @@ BOOST_AUTO_TEST_CASE(Erase)
 BOOST_AUTO_TEST_CASE(Info)
 {
   m_cs.setLimit(2681);
-  for (uint64_t i = 0; i < 310; ++i) {
+  for (int i = 0; i < 310; ++i) {
     m_cs.insert(*makeData(Name("/Q8H4oi4g").appendSequenceNumber(i)));
   }
   m_cs.enableAdmit(false);
@@ -209,7 +207,7 @@ BOOST_AUTO_TEST_CASE(Info)
   m_fwCnt.nCsHits.set(362);
   m_fwCnt.nCsMisses.set(1493);
 
-  receiveInterest(Interest("/localhost/nfd/cs/info").setCanBePrefix(true));
+  receiveInterest(Interest("/localhost/nfd/cs/info"));
   Block dataset = concatenateResponses();
   dataset.parse();
   BOOST_REQUIRE_EQUAL(dataset.elements_size(), 1);

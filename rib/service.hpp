@@ -35,11 +35,11 @@
 #include <ndn-cxx/mgmt/nfd/controller.hpp>
 #include <ndn-cxx/security/key-chain.hpp>
 #include <ndn-cxx/transport/transport.hpp>
-#include <ndn-cxx/util/scheduler.hpp>
 
 namespace nfd {
 namespace rib {
 
+class AutoPrefixPropagator;
 class Readvertise;
 
 /**
@@ -110,13 +110,12 @@ private:
 
   ndn::KeyChain& m_keyChain;
   ndn::Face m_face;
-  ndn::util::Scheduler m_scheduler;
   ndn::nfd::Controller m_nfdController;
 
   Rib m_rib;
   FibUpdater m_fibUpdater;
+  unique_ptr<AutoPrefixPropagator> m_prefixPropagator;
   unique_ptr<Readvertise> m_readvertiseNlsr;
-  unique_ptr<Readvertise> m_readvertisePropagation;
   ndn::mgmt::Dispatcher m_dispatcher;
   RibManager m_ribManager;
 };

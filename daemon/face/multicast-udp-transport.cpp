@@ -118,17 +118,15 @@ bindToDevice(int fd, const std::string& ifname)
   // receive all packets sent to the other interfaces as well.
   // This is needed only on Linux. On macOS, the boost::asio::ip::multicast::join_group
   // option is sufficient to obtain the desired behavior.
-  // We dont't set SO_BINDTODEVICE on Android because this operation requires root privilege
-  // which is not allowed on Android, it will cause "Operation not permitted" error.
 
-#if defined(__linux__) && !defined(__ANDROID__)
+#ifdef __linux__
   PrivilegeHelper::runElevated([=] {
     if (::setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, ifname.data(), ifname.size() + 1) < 0) {
       BOOST_THROW_EXCEPTION(MulticastUdpTransport::Error("Cannot bind multicast rx socket to " +
                                                          ifname + ": " + std::strerror(errno)));
     }
   });
-#endif
+#endif // __linux__
 }
 
 void

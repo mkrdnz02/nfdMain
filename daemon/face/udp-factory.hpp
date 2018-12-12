@@ -32,22 +32,43 @@
 namespace nfd {
 namespace face {
 
-/** \brief Protocol factory for UDP over IPv4 and IPv6
+/** \brief protocol factory for UDP over IPv4 and IPv6
+ *
+ *  UDP unicast is available over both IPv4 and IPv6.
+ *  UDP multicast is available over IPv4 only.
  */
 class UdpFactory : public ProtocolFactory
 {
 public:
+  /**
+   * \brief Exception of UdpFactory
+   */
   class Error : public ProtocolFactory::Error
   {
   public:
-    using ProtocolFactory::Error::Error;
+    explicit
+    Error(const std::string& what)
+      : ProtocolFactory::Error(what)
+    {
+    }
   };
 
   static const std::string&
-  getId() noexcept;
+  getId();
 
   explicit
   UdpFactory(const CtorParams& params);
+
+  /** \brief process face_system.udp config section
+   */
+  void
+  processConfig(OptionalConfigSection configSection,
+                FaceSystem::ConfigContext& context) override;
+
+  void
+  createFace(const CreateFaceRequest& req,
+             const FaceCreatedCallback& onCreated,
+             const FaceCreationFailedCallback& onFailure) override;
 
   /**
    * \brief Create UDP-based channel using udp::Endpoint
@@ -67,6 +88,9 @@ public:
   shared_ptr<UdpChannel>
   createChannel(const udp::Endpoint& localEndpoint,
                 time::nanoseconds idleTimeout);
+
+  std::vector<shared_ptr<const Channel>>
+  getChannels() const override;
 
   /**
    * \brief Create a multicast UDP face
@@ -96,20 +120,6 @@ public:
                       const udp::Endpoint& multicastEndpoint);
 
 private:
-  /** \brief process face_system.udp config section
-   */
-  void
-  doProcessConfig(OptionalConfigSection configSection,
-                  FaceSystem::ConfigContext& context) override;
-
-  void
-  doCreateFace(const CreateFaceRequest& req,
-               const FaceCreatedCallback& onCreated,
-               const FaceCreationFailedCallback& onFailure) override;
-
-  std::vector<shared_ptr<const Channel>>
-  doGetChannels() const override;
-
   /** \brief Create UDP multicast faces on \p netif if needed by \p m_mcastConfig
    *  \return list of faces (just created or already existing) on \p netif
    */

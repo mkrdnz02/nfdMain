@@ -38,8 +38,8 @@ using ndn::nfd::ControlParameters;
 
 class FibUpdater;
 
-/** \brief references a route
- */
+  /** \brief references a route
+   */
 struct RibRouteRef
 {
   shared_ptr<RibEntry> entry;
@@ -68,6 +68,8 @@ public:
 
   Rib();
 
+  ~Rib();
+
   void
   setFibUpdater(FibUpdater* updater);
 
@@ -76,9 +78,6 @@ public:
 
   Route*
   find(const Name& prefix, const Route& route) const;
-
-  Route*
-  findLongestPrefix(const Name& prefix, const Route& route) const;
 
   const_iterator
   begin() const;

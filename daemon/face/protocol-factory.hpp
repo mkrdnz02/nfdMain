@@ -62,7 +62,7 @@ public: // registry
   using CtorParams = ProtocolFactoryCtorParams;
 
   /** \brief Register a protocol factory type
-   *  \tparam PF subclass of ProtocolFactory
+   *  \tparam S subclass of ProtocolFactory
    *  \param id factory identifier
    */
   template<typename PF>
@@ -71,16 +71,16 @@ public: // registry
   {
     Registry& registry = getRegistry();
     BOOST_ASSERT(registry.count(id) == 0);
-    registry[id] = [] (const CtorParams& p) { return make_unique<PF>(p); };
+    registry[id] = &make_unique<PF, const CtorParams&>;
   }
 
   /** \brief Create a protocol factory instance
-   *  \retval nullptr if a factory with the given \p id is not registered
+   *  \retval nullptr if factory with \p id is not registered
    */
   static unique_ptr<ProtocolFactory>
   create(const std::string& id, const CtorParams& params);
 
-  /** \brief Get all registered protocol factory ids
+  /** \brief Get registered protocol factory ids
    */
   static std::set<std::string>
   listRegistered();
@@ -91,39 +91,43 @@ public:
   class Error : public std::runtime_error
   {
   public:
-    using std::runtime_error::runtime_error;
+    explicit
+    Error(const std::string& what)
+      : std::runtime_error(what)
+    {
+    }
   };
 
-  explicit
-  ProtocolFactory(const CtorParams& params);
-
   virtual
-  ~ProtocolFactory() = 0;
+  ~ProtocolFactory() = default;
 
 #ifdef DOXYGEN
-  /** \brief Get id for this protocol factory
+  /** \brief Get id for this ProtocolFactory
    *
    *  face_system.factory-id config section is processed by the protocol factory.
    */
   static const std::string&
-  getId() noexcept;
+  getId();
 #endif
 
-  /** \brief Get FaceUri schemes accepted by this protocol factory
+  /** \brief Process face_system subsection that corresponds to this ProtocolFactory type
+   *  \param configSection the configuration section or boost::null to indicate it is omitted
+   *  \param context provides access to data structures and contextual information
+   *  \throw ConfigFile::Error invalid configuration
+   *
+   *  This function updates \p providedSchemes
+   */
+  virtual void
+  processConfig(OptionalConfigSection configSection,
+                FaceSystem::ConfigContext& context) = 0;
+
+  /** \brief Get FaceUri schemes accepted by this ProtocolFactory
    */
   const std::set<std::string>&
-  getProvidedSchemes() const
+  getProvidedSchemes()
   {
     return providedSchemes;
   }
-
-  /** \brief Process face_system subsection that corresponds to this protocol factory id
-   *  \param configSection the configuration section or boost::none to indicate it is omitted
-   *  \param context provides access to data structures and contextual information
-   *  \throw ConfigFile::Error invalid configuration
-   */
-  void
-  processConfig(OptionalConfigSection configSection, FaceSystem::ConfigContext& context);
 
   /** \brief Encapsulates a face creation request and all its parameters
    *
@@ -137,35 +141,25 @@ public:
     FaceParams params;
   };
 
-  /** \brief Create a unicast face
-   *  \param req request object containing the face creation parameters
-   *  \param onCreated callback if face creation succeeds or face already exists; the settings
-   *                   of an existing face are not updated if they differ from the request
-   *  \param onFailure callback if face creation fails
+  /** \brief Try to create a unicast face using the supplied parameters
+   *
+   * \param req request object containing the face creation parameters
+   * \param onCreated callback if face creation succeeds or face already exists; the settings
+   *                  of an existing face are not updated if they differ from the request
+   * \param onFailure callback if face creation fails
    */
-  void
+  virtual void
   createFace(const CreateFaceRequest& req,
              const FaceCreatedCallback& onCreated,
-             const FaceCreationFailedCallback& onFailure);
+             const FaceCreationFailedCallback& onFailure) = 0;
 
-  /** \brief Create a netdev-bound face
-   *  \param remote remote FaceUri, must be canonical
-   *  \param netdev local network interface
-   *  \return new face
-   *  \throw Error cannot create a face using specified arguments
-   *  \note The caller must ensure there is no existing netdev-bound face with same remote FaceUri
-   *        on the same local network interface.
-   */
-  shared_ptr<Face>
-  createNetdevBoundFace(const FaceUri& remote,
-                        const shared_ptr<const ndn::net::NetworkInterface>& netdev);
-
-  /** \brief Get list of open channels (listening + non-listening)
-   */
-  std::vector<shared_ptr<const Channel>>
-  getChannels() const;
+  virtual std::vector<shared_ptr<const Channel>>
+  getChannels() const = 0;
 
 protected:
+  explicit
+  ProtocolFactory(const CtorParams& params);
+
   template<typename ChannelMap>
   static std::vector<shared_ptr<const Channel>>
   getChannelsFromMap(const ChannelMap& channelMap)
@@ -175,58 +169,6 @@ protected:
     return channels;
   }
 
-private:
-  /** \brief Process face_system subsection that corresponds to this protocol factory id
-   *  \sa processConfig
-   *
-   *  A subclass should override this method if it supports configuration options in the config
-   *  file, and do all the required processing here. The subclass should throw ConfigFile::Error
-   *  if it encounters unrecognized options or invalid values. It should also update
-   *  \p providedSchemes as needed.
-   *
-   *  The base class implementation does nothing.
-   */
-  virtual void
-  doProcessConfig(OptionalConfigSection configSection, FaceSystem::ConfigContext& context);
-
-  /** \brief Create a unicast face
-   *  \sa createFace
-   *
-   *  The base class implementation always invokes the failure callback with error code 406,
-   *  indicating unicast face creation is not supported.
-   */
-  virtual void
-  doCreateFace(const CreateFaceRequest& req,
-               const FaceCreatedCallback& onCreated,
-               const FaceCreationFailedCallback& onFailure);
-
-  /** \brief Create a netdev-bound face
-   *  \sa createNetdevBoundFace
-   *
-   *  The base class implementation always throws Error, indicating netdev-bound faces are not
-   *  supported.
-   *
-   *  A subclass that offers netdev-bound faces should override this method, and also expose
-   *  "scheme+dev" in providedSchemes. For example, UdpFactory should provide "udp4+dev" scheme,
-   *  in addition to "udp4" scheme.
-   *
-   *  The face should be constructed immediately. Face persistency shall be reported as PERMANENT.
-   *  Face state shall remain DOWN until underlying transport is connected. The face shall remain
-   *  open until after .close() is invoked, and survive all socket errors; in case the network
-   *  interface disappears, the face shall remain DOWN until .close() is invoked.
-   */
-  virtual shared_ptr<Face>
-  doCreateNetdevBoundFace(const FaceUri& remote,
-                          const shared_ptr<const ndn::net::NetworkInterface>& netif);
-
-  /** \brief Get list of open channels (listening + non-listening)
-   *  \sa getChannels
-   *
-   *  The base class implementation returns an empty list.
-   */
-  virtual std::vector<shared_ptr<const Channel>>
-  doGetChannels() const;
-
 private: // registry
   using CreateFunc = std::function<unique_ptr<ProtocolFactory>(const CtorParams&)>;
   using Registry = std::map<std::string, CreateFunc>; // indexed by factory id
@@ -235,7 +177,7 @@ private: // registry
   getRegistry();
 
 protected:
-  std::set<std::string> providedSchemes; ///< FaceUri schemes provided by this protocol factory
+  std::set<std::string> providedSchemes; ///< FaceUri schemes provided by this ProtocolFactory
   FaceCreatedCallback addFace; ///< callback when a new face is created
 
   /** \brief NetworkMonitor for listing available network interfaces and monitoring their changes
@@ -249,9 +191,9 @@ protected:
 } // namespace face
 } // namespace nfd
 
-/** \brief Registers a protocol factory
+/** \brief registers a protocol factory
  *
- *  This macro should appear once in the .cpp file of each protocol factory.
+ *  This macro should appear once in .cpp of each protocol factory.
  */
 #define NFD_REGISTER_PROTOCOL_FACTORY(PF)                      \
 static class NfdAuto ## PF ## ProtocolFactoryRegistrationClass \

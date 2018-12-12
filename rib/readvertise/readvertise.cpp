@@ -43,11 +43,9 @@ randomizeTimer(time::milliseconds baseTimer)
   return std::max(newTime, 0_ms);
 }
 
-Readvertise::Readvertise(Rib& rib, ndn::util::Scheduler& scheduler,
-                         unique_ptr<ReadvertisePolicy> policy,
+Readvertise::Readvertise(Rib& rib, unique_ptr<ReadvertisePolicy> policy,
                          unique_ptr<ReadvertiseDestination> destination)
-  : m_scheduler(scheduler)
-  , m_policy(std::move(policy))
+  : m_policy(std::move(policy))
   , m_destination(std::move(destination))
 {
   m_addRouteConn = rib.afterAddRoute.connect([this] (const auto& r) { this->afterAddRoute(r); });
@@ -75,7 +73,7 @@ Readvertise::afterAddRoute(const RibRouteRef& ribRoute)
 
   ReadvertisedRouteContainer::iterator rrIt;
   bool isNew = false;
-  std::tie(rrIt, isNew) = m_rrs.emplace(action->prefix, m_scheduler);
+  std::tie(rrIt, isNew) = m_rrs.emplace(action->prefix);
 
   if (!isNew && rrIt->signer != action->signer) {
     NFD_LOG_WARN("add-route " << ribRoute.entry->getName() << '(' << ribRoute.route->faceId <<
@@ -161,14 +159,14 @@ Readvertise::advertise(ReadvertisedRouteContainer::iterator rrIt)
     [=] {
       NFD_LOG_DEBUG("advertise " << rrIt->prefix << " success");
       rrIt->retryDelay = RETRY_DELAY_MIN;
-      rrIt->retryEvt = m_scheduler.scheduleEvent(randomizeTimer(m_policy->getRefreshInterval()),
-                                                 [=] { advertise(rrIt); });
+      rrIt->retryEvt = scheduler::schedule(randomizeTimer(m_policy->getRefreshInterval()),
+                                           [=] { advertise(rrIt); });
     },
     [=] (const std::string& msg) {
       NFD_LOG_DEBUG("advertise " << rrIt->prefix << " failure " << msg);
       rrIt->retryDelay = std::min(RETRY_DELAY_MAX, rrIt->retryDelay * 2);
-      rrIt->retryEvt = m_scheduler.scheduleEvent(randomizeTimer(rrIt->retryDelay),
-                                                 [=] { advertise(rrIt); });
+      rrIt->retryEvt = scheduler::schedule(randomizeTimer(rrIt->retryDelay),
+                                           [=] { advertise(rrIt); });
     });
 }
 
@@ -191,8 +189,7 @@ Readvertise::withdraw(ReadvertisedRouteContainer::iterator rrIt)
     [=] (const std::string& msg) {
       NFD_LOG_DEBUG("withdraw " << rrIt->prefix << " failure " << msg);
       rrIt->retryDelay = std::min(RETRY_DELAY_MAX, rrIt->retryDelay * 2);
-      rrIt->retryEvt = m_scheduler.scheduleEvent(randomizeTimer(rrIt->retryDelay),
-                                                 [=] { withdraw(rrIt); });
+      rrIt->retryEvt = scheduler::schedule(randomizeTimer(rrIt->retryDelay), [=] { withdraw(rrIt); });
     });
 }
 
