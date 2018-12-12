@@ -1,6 +1,6 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
-/*
- * Copyright (c) 2014-2018,  Regents of the University of California,
+/**
+ * Copyright (c) 2014-2017,  Regents of the University of California,
  *                           Arizona Board of Regents,
  *                           Colorado State University,
  *                           University Pierre & Marie Curie, Sorbonne University,
@@ -23,13 +23,17 @@
  * NFD, e.g., in COPYING.md file.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "scope-prefix.hpp"
+#include "readvertised-route.hpp"
+#include "core/random.hpp"
 
 namespace nfd {
-namespace scope_prefix {
+namespace rib {
 
-const Name LOCALHOST("ndn:/localhost");
-const Name LOCALHOP("ndn:/localhop");
+ReadvertisedRoute::ReadvertisedRoute(const Name& prefix)
+  : prefix(prefix)
+  , nRibRoutes(0)
+{
+}
 
-} // namespace scope_prefix
+} // namespace rib
 } // namespace nfd
