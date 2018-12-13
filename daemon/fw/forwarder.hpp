@@ -104,6 +104,12 @@ public: // faces and policies
   }
 
 public: // forwarding entrypoints and tables
+  void
+  addInterestCacheTable(const FaceId& faceId, const Name& name);
+  bool
+  forwardDataSegments(const Data& data);
+  void
+  dumpCacheTable();
   /** \brief start incoming Interest processing
    *  \param face face on which Interest is received
    *  \param interest the incoming Interest, must be well-formed and created with make_shared

@@ -174,7 +174,7 @@ Forwarder::onContentStoreMiss(const Face& inFace, const shared_ptr<pit::Entry>& 
 {
   NFD_LOG_DEBUG("onContentStoreMiss interest=" << interest.getName());
   ++m_counters.nCsMisses;
-
+  addInterestCacheTable(inFace.getId(), interest.getName());//populate table
   // insert in-record
   pitEntry->insertOrUpdateInRecord(const_cast<Face&>(inFace), interest);
 
@@ -222,7 +222,116 @@ Forwarder::onContentStoreHit(const Face& inFace, const shared_ptr<pit::Entry>& p
   this->dispatchToStrategy(*pitEntry,
     [&] (fw::Strategy& strategy) { strategy.afterContentStoreHit(pitEntry, inFace, data); });
 }
+/****************************************/
 
+//PIT entries for the data segments coming producer
+void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	std::string 		segment_str;
+	std::string			newPrefix;
+	size_t				pos;
+	//get the segment portion from the name prefix
+	osNamePrefix << name;
+	namePrefix 	= osNamePrefix.str();
+	pos 		= namePrefix.find("/%00");
+	if(pos == std::string::npos) {
+		NFD_LOG_INFO("addInterestCacheTable: Error npos");
+		return;
+	}
+	//check is valid segment
+	segment_str = namePrefix.substr(pos);
+	if(segment_str.length() != 7) {
+		NFD_LOG_INFO("addInterestCacheTable: Error sizeLessThan7");
+		return;
+	}
+	//buffer{segment_str.substr(5,5)}; buffer >> hex >> segment_no;
+	newPrefix = namePrefix.substr(0, pos + 4);
+	//Everything is okay, now add the name into table
+	NFD_LOG_INFO("addInterestCacheTable: <inTable> FaceId = " << faceId <<", Name = " << name);
+	//check the table if incoming interest already exists
+	for(struct fib::M_CacheTable_Struct n: m_fib.m_CacheTable) {
+		if(!n.name.compare(newPrefix)) {
+			n.faceIdList.push_back(faceId);
+			NFD_LOG_INFO("addInterestCacheTable:Update.");
+			return;
+		}
+	}
+	//otherwise create a new node
+    try {
+    	struct fib::M_CacheTable_Struct node;
+    	node.name = newPrefix;
+    	node.faceIdList.push_back(faceId);
+    	m_fib.m_CacheTable.push_back(node);
+    }
+    catch (std::bad_alloc& ba) {
+    	NFD_LOG_INFO("addInterestCacheTable: bad_alloc error.");
+    	return;
+    }
+
+    NFD_LOG_INFO("addInterestCacheTable: New Entry.");
+}
+/*Find the list of the requester for the original data and send the rest of the segments*/
+bool Forwarder::forwardDataSegments(const Data& data) {
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	std::string 		segment_str;
+	std::string			newPrefix;
+	size_t				pos;
+	int					segment_no = 0;
+	//get the segment portion from the name prefix
+	try {
+		osNamePrefix << data.getName();
+		namePrefix 	= osNamePrefix.str();
+		pos 		= namePrefix.find("/%00");
+		if(pos == std::string::npos) {
+			NFD_LOG_INFO("forwardDataSegments: Error up_npos");
+			return false;
+		}
+		//check is valid segment
+		segment_str = namePrefix.substr(pos);
+		if(segment_str.length() != 7) {
+			NFD_LOG_INFO("forwardDataSegments: Error up_sizeLessThan7");
+			return false;
+		}
+		newPrefix = namePrefix.substr(0, pos + 4);
+		for(struct fib::M_CacheTable_Struct node: m_fib.m_CacheTable) {
+			if(!node.name.compare(newPrefix)) {
+				//check segment no
+				segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
+				if(std::find(node.segmentUpList.begin(), node.segmentUpList.end(), segment_no) != node.segmentUpList.end() ) {
+					NFD_LOG_INFO("forwardDataSegments: Already Sent: segment_no = " << segment_no);
+					return false;
+				}
+				NFD_LOG_INFO("forwardDataSegments: <popMatch> data name = " << data.getName());
+				for(FaceId fid: node.faceIdList) {
+					Face *outFace = m_faceTable.get(fid);
+					//send the data to the outputstream
+					outFace->sendData(data);
+					NFD_LOG_INFO("forwardDataSegments:Forwarded FaceId = " << fid);
+				}
+				node.segmentUpList.push_back(segment_no);
+				return true;
+			}
+		}
+	}
+	catch(std::exception e) {
+		//do nothing
+	}
+
+	NFD_LOG_INFO("forwardDataSegments: No match.");
+	return false;
+}
+void Forwarder::dumpCacheTable() {
+	NFD_LOG_INFO("-----------dumpCacheTable In-----------");
+	for(struct fib::M_CacheTable_Struct n: m_fib.m_CacheTable) {
+		for(FaceId i: n.faceIdList) {
+			NFD_LOG_DEBUG("Name = " << n.name << ", inFaceId = " << i);
+		}
+	}
+	NFD_LOG_INFO("-----------dumpCacheTable Out-----------");
+}
+/****************************************/
 void
 Forwarder::onOutgoingInterest(const shared_ptr<pit::Entry>& pitEntry, Face& outFace, const Interest& interest)
 {
@@ -353,13 +462,20 @@ Forwarder::onIncomingData(Face& inFace, const Data& data)
 void
 Forwarder::onDataUnsolicited(Face& inFace, const Data& data)
 {
+  bool isDataNotCached;
+  isDataNotCached = true;
   // accept to cache?
   fw::UnsolicitedDataDecision decision = m_unsolicitedDataPolicy->decide(inFace, data);
   if (decision == fw::UnsolicitedDataDecision::CACHE) {
     // CS insert
     m_cs.insert(data, true);
+
+    isDataNotCached = false;
   }
 
+  if(forwardDataSegments(data) && isDataNotCached) { //send the data to upstream
+	  m_cs.insert(data, true);
+  }
   NFD_LOG_DEBUG("onDataUnsolicited face=" << inFace.getId() <<
                 " data=" << data.getName() <<
                 " decision=" << decision);

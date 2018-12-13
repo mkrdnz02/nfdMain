@@ -44,6 +44,14 @@ class Entry;
 
 namespace fib {
 
+/****************************/
+/*structure for new caching strategy*/
+struct M_CacheTable_Struct {
+	std::string name;
+	std::vector<FaceId> faceIdList;
+	std::vector<int>	segmentUpList;
+};
+/****************************/
 /** \brief represents the Forwarding Information Base (FIB)
  */
 class Fib : noncopyable
@@ -113,7 +121,9 @@ public: // mutation
 public: // enumeration
   typedef boost::transformed_range<name_tree::GetTableEntry<Entry>, const name_tree::Range> Range;
   typedef boost::range_iterator<Range>::type const_iterator;
-
+  /*************************************************/
+  std::vector<struct M_CacheTable_Struct> m_CacheTable;
+  /*************************************************/
   /** \return an iterator to the beginning
    *  \note Iteration order is implementation-defined.
    *  \warning Undefined behavior may occur if a FIB/PIT/Measurements/StrategyChoice entry
