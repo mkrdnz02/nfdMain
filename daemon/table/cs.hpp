@@ -31,6 +31,11 @@
 #include "cs-entry-impl.hpp"
 #include <ndn-cxx/util/signal.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include <numeric>
+#include <boost/algorithm/string.hpp>
+#include <iostream>
+#include <algorithm>
+#include <iostream>
 
 namespace nfd {
 namespace cs {
@@ -204,6 +209,13 @@ private: // find
 PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   void
   dump();
+public:
+  bool
+  checkContentStoreTable(Data *seg_data, std::string key);
+  void
+  getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Data> &vdata);
+  int
+  matchingChar(std::string const &s1, std::string const &s2);
 
 private:
   Table m_table;

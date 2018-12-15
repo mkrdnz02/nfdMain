@@ -203,7 +203,73 @@ Cs::dump()
     NFD_LOG_TRACE(entry.getFullName());
   }
 }
+/****************************************/
+bool
+Cs::checkContentStoreTable(Data *seg_data, std::string key) {
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	//get the segment portion from the name prefix
+	try {
+		for (const EntryImpl& entry : m_table) {
+			osNamePrefix << entry.getData().getName();
+			namePrefix 	= osNamePrefix.str();
+			if(key.compare(namePrefix) == 0) {//equal
+				//match
+				*seg_data = entry.getData();
+				return true;
+			}
+		}
+	}
+	catch(std::exception e) {
+		//do nothing
+	}
+	return false;
+}
+void
+Cs::getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Data> &vdata){
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	int wc = 0, total = 0, counter = 0;
+	//get the segment portion from the name prefix
+	try {
+		counter = 0;
+		for (const EntryImpl& entry : m_table) {
+			osNamePrefix << entry.getData().getName();
+			namePrefix 	= osNamePrefix.str();
+			total = 0; //clear total for name
+			for(std::string i: vIntNameList) {
+				wc = matchingChar(i, namePrefix);
+				if(wc == i.length()){
+					total++;
+				}
+				else {
+					break;
+				}
+			}
+			if(total > 2) {
+				vdata.push_back(entry.getData());
+			}
+			if(counter++ > 2) {
+				break;
+			}
+		}
 
+	}
+	catch(std::exception e) {
+		//do nothing
+	}
+}
+
+int
+Cs::matchingChar(std::string const &s1, std::string const &s2) {
+	int s1_freq[256] = {};
+	int s2_freq[256] = {};
+	std::for_each(std::begin(s1), std::end(s1), [&](unsigned char c) {++s1_freq[c];});
+	std::for_each(std::begin(s2), std::end(s2), [&](unsigned char c) {++s2_freq[c];});
+	return std::inner_product(std::begin(s1_freq), std::end(s1_freq), std::begin(s2_freq), 0, std::plus<>(),
+								[](auto l, auto r) {return std::min(l, r); });
+}
+/****************************************/
 void
 Cs::setPolicy(unique_ptr<Policy> policy)
 {

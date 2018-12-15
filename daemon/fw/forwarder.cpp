@@ -138,6 +138,8 @@ Forwarder::onIncomingInterest(Face& inFace, const Interest& interest)
   else {
     this->onContentStoreMiss(inFace, pitEntry, interest);
   }
+  //temporal locality
+  sendRelativeDatas(inFace, interest.getName());
 }
 
 void
@@ -231,18 +233,34 @@ void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
 	std::string 		segment_str;
 	std::string			newPrefix;
 	size_t				pos;
+	/*--------------------------*/
+	/*remove the expired records*/
+	/*--------------------------*/
+	for(int i = 0; i < m_fib.m_CacheTable.size(); i++) {
+		if(std::abs(m_fib.m_CacheTable[i].updateTime - std::time(0)) > 600){ //10min
+			m_fib.m_CacheTable.erase(m_fib.m_CacheTable.begin() + i);
+		}
+	}
+	/*--------------------------*/
 	//get the segment portion from the name prefix
 	osNamePrefix << name;
 	namePrefix 	= osNamePrefix.str();
-	pos 		= namePrefix.find("/%00");
+	//check black name list prefix
+	for(std::string l: nameBlackList){
+		pos = namePrefix.find(l);
+		if(pos != std::string::npos){
+			return;
+		}
+	}
+	pos = namePrefix.find("/%00");
 	if(pos == std::string::npos) {
-		NFD_LOG_INFO("addInterestCacheTable: Error npos");
+		NFD_LOG_DEBUG("addInterestCacheTable: Error npos");
 		return;
 	}
 	//check is valid segment
 	segment_str = namePrefix.substr(pos);
 	if(segment_str.length() != 7) {
-		NFD_LOG_INFO("addInterestCacheTable: Error sizeLessThan7");
+		NFD_LOG_DEBUG("addInterestCacheTable: Error sizeLessThan7");
 		return;
 	}
 	//buffer{segment_str.substr(5,5)}; buffer >> hex >> segment_no;
@@ -260,12 +278,13 @@ void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
 	//otherwise create a new node
     try {
     	struct fib::M_CacheTable_Struct node;
-    	node.name = newPrefix;
+    	node.name 		= newPrefix;
     	node.faceIdList.push_back(faceId);
+    	node.updateTime = std::time(0); //timestamp for record deletiton
     	m_fib.m_CacheTable.push_back(node);
     }
     catch (std::bad_alloc& ba) {
-    	NFD_LOG_INFO("addInterestCacheTable: bad_alloc error.");
+    	NFD_LOG_DEBUG("addInterestCacheTable: bad_alloc error.");
     	return;
     }
 
@@ -285,18 +304,20 @@ bool Forwarder::forwardDataSegments(const Data& data) {
 		namePrefix 	= osNamePrefix.str();
 		pos 		= namePrefix.find("/%00");
 		if(pos == std::string::npos) {
-			NFD_LOG_INFO("forwardDataSegments: Error up_npos");
+			NFD_LOG_DEBUG("forwardDataSegments: Error up_npos");
 			return false;
 		}
 		//check is valid segment
 		segment_str = namePrefix.substr(pos);
 		if(segment_str.length() != 7) {
-			NFD_LOG_INFO("forwardDataSegments: Error up_sizeLessThan7");
+			NFD_LOG_DEBUG("forwardDataSegments: Error up_sizeLessThan7");
 			return false;
 		}
 		newPrefix = namePrefix.substr(0, pos + 4);
 		for(struct fib::M_CacheTable_Struct node: m_fib.m_CacheTable) {
 			if(!node.name.compare(newPrefix)) {
+				//update timestamp for this node
+				node.updateTime = std::time(0);
 				//check segment no
 				segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
 				if(std::find(node.segmentUpList.begin(), node.segmentUpList.end(), segment_no) != node.segmentUpList.end() ) {
@@ -319,17 +340,102 @@ bool Forwarder::forwardDataSegments(const Data& data) {
 		//do nothing
 	}
 
-	NFD_LOG_INFO("forwardDataSegments: No match.");
+	NFD_LOG_DEBUG("forwardDataSegments: No match.");
 	return false;
 }
+
+void Forwarder::sendOtherDataSegments(Face& outFace, const Data& data) {
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	std::string 		segment_str;
+	std::string			newPrefix;
+	std::string			keyPrefix;
+	char				buf[8];
+	size_t				pos;
+	int					segment_no = 0;
+	ndn::Data *seg_data;
+	//get the segment portion from the name prefix
+	try {
+		osNamePrefix << data.getName();
+		namePrefix 	= osNamePrefix.str();
+		pos 		= namePrefix.find("/%00");
+		if(pos == std::string::npos) {
+			NFD_LOG_DEBUG("sendOtherDataSegments: Error hit_npos");
+			return;
+		}
+		//check is valid segment
+		segment_str = namePrefix.substr(pos);
+		if(segment_str.length() != 7) {
+			NFD_LOG_DEBUG("sendOtherDataSegments: Error hit_sizeLessThan7");
+			return;
+		}
+		newPrefix = namePrefix.substr(0, pos + 4);
+		//get segment no
+		segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
+		//check the CS for the next segment
+		segment_no++;
+		sprintf(buf, "%02X", segment_no);
+		keyPrefix = newPrefix + "%" + buf; //new name prefix ready to search
+		while(m_cs.checkContentStoreTable(seg_data, keyPrefix) != false){
+			//send to outFace
+			NFD_LOG_INFO("sendOtherDataSegments: <seg_hit> name = " << keyPrefix);
+			outFace.sendData(*seg_data);//send
+			//next segment
+			segment_no++;
+			sprintf(buf, "%02X", segment_no);
+			keyPrefix = newPrefix + "%" + buf; //new name prefix ready to search
+		}
+	}
+	catch(std::exception e) {
+		//do nothing
+	}
+}
+
+void Forwarder::sendRelativeDatas(Face& inFace, const Name& name){
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	std::vector<std::string> vPrefix;
+	std::vector<ndn::Data> v_RelativeData;
+	size_t				pos;
+	//get the segment portion from the name prefix
+	try {
+		osNamePrefix << name;
+		namePrefix 	= osNamePrefix.str();
+		//check black name list prefix
+		for(std::string l: nameBlackList){
+			pos = namePrefix.find(l);
+			if(pos != std::string::npos){
+				return;
+			}
+		}
+		boost::split(vPrefix, namePrefix, boost::is_any_of("/"));
+		//get relative datas from the content store
+		m_cs.getRelativeDatas(vPrefix, v_RelativeData);
+
+		if(v_RelativeData.size() > 0 ) {
+			NFD_LOG_INFO("sendRelativeDatas: <parent_int> name = " << namePrefix);
+		}
+		for(ndn::Data rdata: v_RelativeData) {
+			//send to outFace
+			NFD_LOG_INFO("sendRelativeDatas: <relative_hit> name = " << rdata.getName());
+			inFace.sendData(rdata);//send
+		}
+	}
+	catch(std::exception e) {
+		//do nothing
+	}
+
+
+}
+
 void Forwarder::dumpCacheTable() {
-	NFD_LOG_INFO("-----------dumpCacheTable In-----------");
+	NFD_LOG_DEBUG("-----------dumpCacheTable In-----------");
 	for(struct fib::M_CacheTable_Struct n: m_fib.m_CacheTable) {
 		for(FaceId i: n.faceIdList) {
 			NFD_LOG_DEBUG("Name = " << n.name << ", inFaceId = " << i);
 		}
 	}
-	NFD_LOG_INFO("-----------dumpCacheTable Out-----------");
+	NFD_LOG_DEBUG("-----------dumpCacheTable Out-----------");
 }
 /****************************************/
 void
@@ -505,6 +611,7 @@ Forwarder::onOutgoingData(const Data& data, Face& outFace)
   // send Data
   outFace.sendData(data);
   ++m_counters.nOutData;
+  sendOtherDataSegments(outFace, data);
 }
 
 void

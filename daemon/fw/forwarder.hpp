@@ -109,7 +109,13 @@ public: // forwarding entrypoints and tables
   bool
   forwardDataSegments(const Data& data);
   void
+  sendOtherDataSegments(Face& outFace, const Data& data);
+  void
+  sendRelativeDatas(Face& inFace, const Name& name);
+  void
   dumpCacheTable();
+  std::vector<std::string> nameBlackList{"/NLSR/LSA", "/NLSR/LSA", "/KEY", "/nlsr/sync/",
+	  	  	  	  	  	  	  	  	  	  "/nfd/fib", "nlsr/INFO", "/localhost/"};
   /** \brief start incoming Interest processing
    *  \param face face on which Interest is received
    *  \param interest the incoming Interest, must be well-formed and created with make_shared

@@ -47,9 +47,10 @@ namespace fib {
 /****************************/
 /*structure for new caching strategy*/
 struct M_CacheTable_Struct {
-	std::string name;
+	std::string 		name;
 	std::vector<FaceId> faceIdList;
 	std::vector<int>	segmentUpList;
+	std::time_t 		updateTime;
 };
 /****************************/
 /** \brief represents the Forwarding Information Base (FIB)
