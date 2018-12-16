@@ -205,18 +205,34 @@ Cs::dump()
 }
 /****************************************/
 bool
-Cs::checkContentStoreTable(Data *seg_data, std::string key) {
+Cs::checkContentStoreTable(std::vector<ndn::Data> &vdata, std::string key, int in_seg_no) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
+	std::string 		segment_str;
+	size_t				pos;
+	int segment_no = 0,wc = 0;
 	//get the segment portion from the name prefix
 	try {
 		for (const EntryImpl& entry : m_table) {
 			osNamePrefix << entry.getData().getName();
 			namePrefix 	= osNamePrefix.str();
-			if(key.compare(namePrefix) == 0) {//equal
-				//match
-				*seg_data = entry.getData();
-				return true;
+			wc = matchingChar(key, namePrefix);
+			if(wc == key.length()) {//match
+				//check segment no
+				pos = namePrefix.find("/%00");
+				if(pos == std::string::npos) {
+					continue;
+				}
+				//check is valid segment
+				segment_str = namePrefix.substr(pos);
+				if(segment_str.length() != 7) {
+					continue;
+				}
+				//get segment no
+				segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
+				if(in_seg_no != segment_no) {
+					vdata.push_back(entry.getData());
+				}
 			}
 		}
 	}

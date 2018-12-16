@@ -353,7 +353,7 @@ void Forwarder::sendOtherDataSegments(Face& outFace, const Data& data) {
 	char				buf[8];
 	size_t				pos;
 	int					segment_no = 0;
-	ndn::Data *seg_data;
+	std::vector<ndn::Data> segDataList;
 	//get the segment portion from the name prefix
 	try {
 		osNamePrefix << data.getName();
@@ -373,17 +373,11 @@ void Forwarder::sendOtherDataSegments(Face& outFace, const Data& data) {
 		//get segment no
 		segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
 		//check the CS for the next segment
-		segment_no++;
-		sprintf(buf, "%02X", segment_no);
-		keyPrefix = newPrefix + "%" + buf; //new name prefix ready to search
-		while(m_cs.checkContentStoreTable(seg_data, keyPrefix) != false){
+		m_cs.checkContentStoreTable(segDataList, newPrefix, segment_no);
+		for(ndn::Data seg_data: segDataList) {
 			//send to outFace
-			NFD_LOG_INFO("sendOtherDataSegments: <seg_hit> name = " << keyPrefix);
-			outFace.sendData(*seg_data);//send
-			//next segment
-			segment_no++;
-			sprintf(buf, "%02X", segment_no);
-			keyPrefix = newPrefix + "%" + buf; //new name prefix ready to search
+			NFD_LOG_INFO("sendOtherDataSegments: <seg_hit> name = " << seg_data.getName());
+			outFace.sendData(seg_data);//send
 		}
 	}
 	catch(std::exception e) {
