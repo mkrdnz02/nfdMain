@@ -105,6 +105,18 @@ public: // faces and policies
 
 public: // forwarding entrypoints and tables
   void
+  updateNieghborsList(const FaceId& faceId, const Name& name);
+  void
+  sendMPPTableToNeighbors();
+  FaceId
+  findFaceIdInMMPTable(const Interest& interest );
+  void
+  dumpMPPTable();
+  void
+  addMPPStatisticTable(const FaceId& faceId, const Data& data);
+  void
+  addMPPStatisticTable(const FaceId& faceId, const std::string namePrefix);
+  void
   addInterestCacheTable(const FaceId& faceId, const Name& name);
   bool
   forwardDataSegments(const Data& data);
@@ -114,8 +126,8 @@ public: // forwarding entrypoints and tables
   sendRelativeDatas(Face& inFace, const Name& name);
   void
   dumpCacheTable();
-  std::vector<std::string> nameBlackList{"/NLSR/LSA", "/NLSR/LSA", "/KEY", "/nlsr/sync/",
-	  	  	  	  	  	  	  	  	  	  "/nfd/fib", "nlsr/INFO", "/localhost/"};
+  std::vector<std::string> nameBlackList{"/localhost/","/localhop/", "/NLSR/LSA", "faces/events","/KEY", "/nlsr/sync/",
+	  	  	  	  	  	  	  	  	  	  "/nfd/fib", "/nlsr/INFO/", "Router/cs/"};
   /** \brief start incoming Interest processing
    *  \param face face on which Interest is received
    *  \param interest the incoming Interest, must be well-formed and created with make_shared
@@ -295,6 +307,7 @@ private:
   StrategyChoice     m_strategyChoice;
   DeadNonceList      m_deadNonceList;
   NetworkRegionTable m_networkRegionTable;
+  //ndn::KeyChain			 m_KeyChain;
 
   // allow Strategy (base class) to enter pipelines
   friend class fw::Strategy;

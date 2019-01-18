@@ -53,6 +53,14 @@ struct M_CacheTable_Struct {
 	std::time_t 		updateTime;
 };
 /****************************/
+/****************************/
+/*structure for MPP strategy*/
+struct M_MPPTable_Struct {
+	std::string 		name;
+	std::vector<FaceId> faceIdList;
+	std::vector<int>	pVal;
+};
+/****************************/
 /** \brief represents the Forwarding Information Base (FIB)
  */
 class Fib : noncopyable
@@ -124,6 +132,12 @@ public: // enumeration
   typedef boost::range_iterator<Range>::type const_iterator;
   /*************************************************/
   std::vector<struct M_CacheTable_Struct> m_CacheTable;
+  /*************************************************/
+  /*************************************************/
+  std::vector<struct M_MPPTable_Struct> m_MPPTable;
+  /*************************************************/
+  /*************************************************/
+  std::vector<FaceId> m_neighborsList;
   /*************************************************/
   /** \return an iterator to the beginning
    *  \note Iteration order is implementation-defined.
