@@ -105,7 +105,7 @@ public: // faces and policies
 
 public: // forwarding entrypoints and tables
   void
-  updateNieghborsList(const FaceId& faceId, const Name& name);
+  updateNeighborsList(const FaceId& faceId, const Name& name);
   void
   sendMPPTableToNeighbors();
   FaceId
@@ -113,9 +113,11 @@ public: // forwarding entrypoints and tables
   void
   dumpMPPTable();
   void
+  getSharedMPPTable(const FaceId& faceId, const Data& data);
+  void
   addMPPStatisticTable(const FaceId& faceId, const Data& data);
   void
-  addMPPStatisticTable(const FaceId& faceId, const std::string namePrefix);
+  addMPPStatisticTable(const FaceId& faceId, const std::string namePrefix, const int probability);
   void
   addInterestCacheTable(const FaceId& faceId, const Name& name);
   bool

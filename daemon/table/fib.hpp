@@ -56,9 +56,9 @@ struct M_CacheTable_Struct {
 /****************************/
 /*structure for MPP strategy*/
 struct M_MPPTable_Struct {
-	std::string 		name;
-	std::vector<FaceId> faceIdList;
-	std::vector<int>	pVal;
+	std::string name;
+	FaceId 		faceId;
+	int			pVal;
 };
 /****************************/
 /** \brief represents the Forwarding Information Base (FIB)
