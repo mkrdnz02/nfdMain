@@ -107,9 +107,15 @@ public: // forwarding entrypoints and tables
   void
   updateNeighborsList(const FaceId& faceId, const Name& name);
   void
-  sendMPPTableToNeighbors();
+  sendMPPTableToNeighbors(const FaceId& faceId);
   FaceId
-  findFaceIdInMMPTable(const Interest& interest );
+  findFaceIdInMMPTable(const Interest& interest, int* nackElem );
+  void
+  checkMPPRecordInUseFlag(const Name& name, const int type);
+  FaceId
+  calculateProbabilityForIncomingInterest(const Interest& interest);
+  void
+  printNamePrefix(const std::string info, const FaceId& faceId, const Name& name);
   void
   dumpMPPTable();
   void
@@ -117,7 +123,11 @@ public: // forwarding entrypoints and tables
   void
   addMPPStatisticTable(const FaceId& faceId, const Data& data);
   void
-  addMPPStatisticTable(const FaceId& faceId, const std::string namePrefix, const int probability);
+  addMPPStatisticTable(	 const FaceId& faceId,
+						 const std::string namePrefix,
+						 const uint32_t probability,
+						 const uint32_t cost,
+						 const uint32_t hop);
   void
   addInterestCacheTable(const FaceId& faceId, const Name& name);
   bool
@@ -129,7 +139,7 @@ public: // forwarding entrypoints and tables
   void
   dumpCacheTable();
   std::vector<std::string> nameBlackList{"/localhost/","/localhop/", "/NLSR/LSA", "faces/events","/KEY", "/nlsr/sync/",
-	  	  	  	  	  	  	  	  	  	  "/nfd/fib", "/nlsr/INFO/", "Router/cs/"};
+	  	  	  	  	  	  	  	  	  	  "/nfd/fib", "/nlsr/INFO/", "Router/cs/", "nfd/faces", "nfd/rib"};
   /** \brief start incoming Interest processing
    *  \param face face on which Interest is received
    *  \param interest the incoming Interest, must be well-formed and created with make_shared

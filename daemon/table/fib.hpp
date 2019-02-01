@@ -58,7 +58,11 @@ struct M_CacheTable_Struct {
 struct M_MPPTable_Struct {
 	std::string name;
 	FaceId 		faceId;
-	int			pVal;
+	uint32_t	hop;
+	uint32_t    cost;
+	uint32_t    probability;
+	uint32_t	nackCnt;
+	uint16_t	inUse;
 };
 /****************************/
 /** \brief represents the Forwarding Information Base (FIB)
@@ -137,7 +141,8 @@ public: // enumeration
   std::vector<struct M_MPPTable_Struct> m_MPPTable;
   /*************************************************/
   /*************************************************/
-  std::vector<FaceId> m_neighborsList;
+  std::vector<FaceId> 		m_neighborsList;
+  //std::vector<std::string> 	m_neighborsListName;
   /*************************************************/
   /** \return an iterator to the beginning
    *  \note Iteration order is implementation-defined.
