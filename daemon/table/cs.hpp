@@ -212,8 +212,8 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE:
 public:
   bool
   checkContentStoreTable(std::vector<ndn::Data> &vdata, std::string key, int seg_no);
-  void
-  getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Data> &vdata);
+  //void
+  //getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Data> &vdata);
   int
   matchingChar(std::string const &s1, std::string const &s2);
 

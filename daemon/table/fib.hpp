@@ -64,6 +64,10 @@ struct M_MPPTable_Struct {
 	uint32_t	nackCnt;
 	uint16_t	inUse;
 };
+struct M_FaceId_Name_Struct {
+	FaceId faceId;
+	std::string name;
+};
 /****************************/
 /** \brief represents the Forwarding Information Base (FIB)
  */
@@ -141,8 +145,9 @@ public: // enumeration
   std::vector<struct M_MPPTable_Struct> m_MPPTable;
   /*************************************************/
   /*************************************************/
-  std::vector<FaceId> 		m_neighborsList;
+  std::vector<struct M_FaceId_Name_Struct> m_neighborsList;
   //std::vector<std::string> 	m_neighborsListName;
+  std::vector<struct M_FaceId_Name_Struct> m_CalcProbTable;
   /*************************************************/
   /** \return an iterator to the beginning
    *  \note Iteration order is implementation-defined.

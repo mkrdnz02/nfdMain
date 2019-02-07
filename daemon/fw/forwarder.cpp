@@ -263,41 +263,81 @@ Forwarder::onContentStoreHit(const Face& inFace, const shared_ptr<pit::Entry>& p
 /****************************************/
 void Forwarder::updateNeighborsList(const FaceId& faceId, const Name& name) {
 	std::ostringstream 	osNamePrefix;
-	std::string 		namePrefix;
+	std::string 		namePrefix, routerName;
 	size_t				pos;
+	int 				isFound, linkCost;
 	/*--------------------------*/
 	osNamePrefix << name;
 	namePrefix 	= osNamePrefix.str();
 	//check hello interest
-	pos = namePrefix.find("nlsr/INFO");
+	pos = namePrefix.find("/nlsr/INFO");
 	if(pos == std::string::npos){
 		return;
 	}
+	namePrefix = namePrefix.substr(0, pos);
 	//NFD_LOG_INFO("updateNeighborsList: name=" << namePrefix);
 	//check already exist
-	std::vector<FaceId>::iterator it;
-	it = std::find(m_fib.m_neighborsList.begin(), m_fib.m_neighborsList.end(), faceId);
-	if(it == m_fib.m_neighborsList.end()) {
-		//new neighbor, add into table
-		m_fib.m_neighborsList.push_back(faceId);
-		//NFD_LOG_INFO("updateNeighborsList: added faceId=" << faceId);
+	isFound = 0;
+	for(struct fib::M_FaceId_Name_Struct node: m_fib.m_neighborsList) {
+		if(node.faceId == faceId) {
+			isFound = 1;
+			break;
+		}
+	}
+
+	if (isFound == 1) {
+		return;
+	}
+
+	for (const auto& entry : m_fib) {
+
+	    const auto& nexthops = entry.getNextHops();
+	    //get the name of the fib entry
+	    osNamePrefix.str("");
+	    osNamePrefix.clear();
+	    osNamePrefix << entry.getPrefix();
+	    routerName = osNamePrefix.str();
+
+	    if ( routerName.compare(namePrefix) == 0 ) {
+	    	for (int i = 0; i < nexthops.size(); i++) {
+				if(faceId == nexthops[i].getFace().getId()) {
+					linkCost = nexthops[i].getCost();
+					break;
+				}
+			}
+	    }
+	}
+
+	if(linkCost == 0 || linkCost == 32766) {
+		return;
+	}
+	NFD_LOG_INFO("neighbors: name=" << namePrefix << ", FaceId = " << faceId << ", cost = " << linkCost);
+	//add into table
+	try {
+		struct fib::M_FaceId_Name_Struct node;
+		node.name 			= namePrefix;
+		node.faceId 		= faceId;
+		m_fib.m_neighborsList.push_back(node);
+	} catch (std::bad_alloc& ba) {
+		NFD_LOG_DEBUG("...bad_alloc error.");
 	}
 
 }
+
 void Forwarder::sendMPPTableToNeighbors(const FaceId& faceId) {
     ndn::Data *data = new ndn::Data();
     std::string mppInterestPrefix = "ndn:/mpp/ProudToShare";
     std::string mppTableStr = "";
-	uint64_t pVal;
+	uint32_t pVal = 0;
 	/*for (const fib::NextHop& hop : m_fib) {
 		NFD_LOG_INFO("...fib hop id = " << hop.getFace() << ", cost = " << hop.getCost());
 	}*/
 	for(struct fib::M_MPPTable_Struct node: m_fib.m_MPPTable){
-		if(node.probability == 100) {
-			pVal  = (node.hop << 16) | 10;
-			//NFD_LOG_INFO("sendMPPTableToNeighbors: node.cost= " << node.cost << ", node.hop= " << node.hop << ", pVal = " << pVal);
-			mppTableStr += to_string(pVal) + "#" + node.name + "#";
-		}
+
+		pVal  = (uint32_t)(node.hop << 16) | node.cost;
+		NFD_LOG_INFO("sendMPPTableToNeighbors: node.cost= " << node.cost << ", node.hop= " << node.hop << ", pVal = " << pVal);
+		mppTableStr += to_string(pVal) + "#" + node.name + "#";
+
 	}
     //create a data
     data->setName(ndn::Name(mppInterestPrefix).appendVersion());
@@ -307,17 +347,29 @@ void Forwarder::sendMPPTableToNeighbors(const FaceId& faceId) {
     ndn::security::v2::KeyChain m_keyChain;
     m_keyChain.sign(*data);
 
-    for(FaceId f_id: m_fib.m_neighborsList) {
-    	if(f_id == faceId) {
+    for(struct fib::M_FaceId_Name_Struct node: m_fib.m_neighborsList) {
+    	if(node.faceId == faceId) {
     		//skip downstream
     		continue;
     	}
-        nfd::face::Face* outFace = m_faceTable.get(f_id);
+        nfd::face::Face* outFace = m_faceTable.get(node.faceId);
         if (outFace != nullptr) {
         	//NFD_LOG_INFO("sendMPPTableToNeighbors data=" << mppInterestPrefix << " outfaceid=" << outFace->getId());
         	this->onOutgoingData(*data, *outFace);
         }
     }
+}
+
+int Forwarder::isFaceInNeighborList(const FaceId& faceId) {
+	unsigned int isNeighbor = 0;
+	if(m_fib.m_neighborsList.size() > 0 ) {
+		for(struct fib::M_FaceId_Name_Struct node: m_fib.m_neighborsList) {
+			if(node.faceId == faceId) {
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
 
 FaceId Forwarder::findFaceIdInMMPTable(const Interest& interest, int* nackElem ) {
@@ -327,12 +379,18 @@ FaceId Forwarder::findFaceIdInMMPTable(const Interest& interest, int* nackElem )
 	/*--------------------------*/
 	osNamePrefix << interest.getName();
 	namePrefix 	= osNamePrefix.str();
+	//check neighbor list
+
+
 	*nackElem = 0;
 	for(int i = 0; i < m_fib.m_MPPTable.size(); i++){
 		pos = namePrefix.find(m_fib.m_MPPTable[i].name);
 		if(pos != std::string::npos){
 			//NFD_LOG_INFO("findFaceIdInMMPTable: name:" << node.name << ", nackCnt= " << node.nackCnt);
-			if (m_fib.m_MPPTable[i].nackCnt == 0) { //return if it has been not nacked before
+			//return if it has been not nacked before
+			if ( ( isFaceInNeighborList(m_fib.m_MPPTable[i].faceId)) &&
+				 ( m_fib.m_MPPTable[i].nackCnt == 0) )
+			{
 				m_fib.m_MPPTable[i].inUse = 1;
 				return m_fib.m_MPPTable[i].faceId;
 			}
@@ -345,7 +403,7 @@ FaceId Forwarder::findFaceIdInMMPTable(const Interest& interest, int* nackElem )
 	return -1;
 }
 
-void Forwarder::checkMPPRecordInUseFlag(const Name& name, const int type) {
+void Forwarder::checkMPPRecordInUseFlag(const Name& name, const int type, const FaceId& faceId) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
 	size_t				pos;
@@ -375,17 +433,41 @@ void Forwarder::checkMPPRecordInUseFlag(const Name& name, const int type) {
 			}
 		}
 	}
+	//check probability table
+	if (type == 1) {
+		for(uint32_t i = 0; i < m_fib.m_CalcProbTable.size(); i++) {
+				pos = namePrefix.find(m_fib.m_MPPTable[i].name);
+				if((pos != std::string::npos) &&  m_fib.m_MPPTable[i].faceId == faceId){
+					m_fib.m_MPPTable.erase(m_fib.m_MPPTable.begin() + i);
+					return;
+				}
+		}
+	}
+}
+int Forwarder::isNamePrefixExistInCalcProbTable(const std::string name) {
+	size_t	pos;
+	for (struct fib::M_FaceId_Name_Struct node: m_fib.m_CalcProbTable) {
+		pos = name.find(node.name);
+		if(pos != std::string::npos){
+			return 1;
+		}
+	}
+	return 0;
 }
 
 FaceId Forwarder::calculateProbabilityForIncomingInterest(const Interest& interest) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
 	std::vector<std::string> inputVal, tableVal;
-	unsigned int prevMatchCnt, curMatchCnt, sizeOfinputVal;
+	unsigned int prevMatchCnt, curMatchCnt, sizeOfinputVal, cur_mean, cur_size;
 	size_t				pos;
 	/*--------------------------*/
 	osNamePrefix << interest.getName();
 	namePrefix 	= osNamePrefix.str();
+	//is already used?
+	if(isNamePrefixExistInCalcProbTable(namePrefix)) {
+		return -1;
+	}
 	//check black name list prefix
 	for(std::string l: nameBlackList){
 		pos = namePrefix.find(l);
@@ -401,32 +483,55 @@ FaceId Forwarder::calculateProbabilityForIncomingInterest(const Interest& intere
 	//reset the counter
 	prevMatchCnt = 0;
 	FaceId f_id = -1;
-	for(struct fib::M_MPPTable_Struct node: m_fib.m_MPPTable){
-		curMatchCnt = 0;
-		//divide the each sub prefix of table row into the list
-		boost::split(tableVal, node.name, boost::is_any_of("/"));
-		for (unsigned int i = 1; i < sizeOfinputVal; i++) {
-			if(tableVal.size() > i) {
-				if(tableVal[i] == inputVal[i]){
-					curMatchCnt++;
-				}
-				else {
-					//order of match matter
-					break;
-				}
+	for(struct fib::M_FaceId_Name_Struct neigNode: m_fib.m_neighborsList) {
+		cur_mean = 0;
+		cur_size = 0;
+		for(struct fib::M_MPPTable_Struct node: m_fib.m_MPPTable){
+			if(neigNode.faceId != node.faceId) {
+				continue;
 			}
-		}
+			//divide the each sub prefix of table row into the list
+			boost::split(tableVal, node.name, boost::is_any_of("/"));
+			curMatchCnt = 0;
+			for (unsigned int i = 1; i < sizeOfinputVal; i++) {
+						if(tableVal.size() > i) {
+							if(tableVal[i] == inputVal[i]){
+								curMatchCnt++;
+							}
+							else {
+								//order of match matter
+								break;
+							}
+						}
+			}
+			cur_mean = cur_mean * cur_size;
+			cur_mean += ( (curMatchCnt*100) / (tableVal.size()-1) );
+			//increment size
+			cur_size++;
+			cur_mean = cur_mean / cur_size;
 
-		if(curMatchCnt > prevMatchCnt) {
-			prevMatchCnt = ( (curMatchCnt*100) / (tableVal.size()-1) );
-			if(prevMatchCnt > 50) {
-				f_id = node.faceId; //store the faceId having the most match counter
+			if(cur_mean > prevMatchCnt) {
+				prevMatchCnt = cur_mean;
+				if(prevMatchCnt > 50) {
+					f_id = node.faceId; //store the faceId having the most match counter
+				}
 			}
-		}
-	}
+		}//mpp table record loop
+	}//neighbor list loop
 
 	if(f_id != -1) {
-		NFD_LOG_INFO("...Forwarding : " << f_id << ", probability = %" << prevMatchCnt);
+		NFD_LOG_INFO("...Forwarding : " << f_id << ", calc probability = %" << prevMatchCnt);
+
+	    try {
+	    	struct fib::M_FaceId_Name_Struct node;
+	    	node.name 			= namePrefix;
+	    	node.faceId 		= f_id;
+	    	m_fib.m_CalcProbTable.push_back(node);
+	    } catch (std::bad_alloc& ba) {
+	    	NFD_LOG_DEBUG("...bad_alloc error.");
+	    	return -1;
+	    }
+
 		return f_id;
 	}
 
@@ -454,7 +559,7 @@ void Forwarder::printNamePrefix(const std::string info, const FaceId& faceId, co
 }
 void Forwarder::dumpMPPTable() {
 	if(m_fib.m_MPPTable.size() > 0) {
-		NFD_LOG_INFO("MPPTable:");
+		NFD_LOG_INFO("_MPPTable_:");
 		for(struct fib::M_MPPTable_Struct n: m_fib.m_MPPTable) {
 			NFD_LOG_INFO("...Name = " << n.name << ", inFaceId = " << n.faceId <<
 						 ", probability = " << n.probability << ", hop = " << n.hop <<
@@ -468,16 +573,26 @@ void Forwarder::dumpMPPTable() {
 		}
 	}*/
 }
+std::string Forwarder::getRouterName(const FaceId& faceId) {
+
+	for(struct fib::M_FaceId_Name_Struct node: m_fib.m_neighborsList) {
+		if(node.faceId == faceId) {
+			return node.name;
+		}
+	}
+	return "null";
+}
+
 void Forwarder::getSharedMPPTable(const FaceId& faceId, const Data& data) {
 	std::ostringstream 	osNamePrefix;
 	std::ostringstream 	osContentStream;
-	std::string 		namePrefix, contentStrFull, h, contentString;
+	std::string 		namePrefix, routerName, contentStrFull, h, contentString;
 	std::vector<std::string> rowList;
 	size_t				pos, pos2;
 	Block content;
 	char buf[16];
 	int toggleBit;
-	uint64_t pVal = 0;
+	uint32_t pVal = 0, linkCost = 0;
 	/*--------------------------*/
 	//get the segment portion from the name prefix
 	osNamePrefix << data.getName();
@@ -488,6 +603,26 @@ void Forwarder::getSharedMPPTable(const FaceId& faceId, const Data& data) {
 		return;
 	}
 
+	//*******************************************
+	for (const auto& entry : m_fib) {
+
+	    const auto& nexthops = entry.getNextHops();
+	    //get the name of the fib entry
+	    osNamePrefix.str("");
+	    osNamePrefix.clear();
+	    osNamePrefix << entry.getPrefix();
+	    routerName = osNamePrefix.str();
+
+	    if ( routerName.compare(getRouterName(faceId)) == 0 ) {
+	    	for (int i = 0; i < nexthops.size(); i++) {
+				if(faceId == nexthops[i].getFace().getId()) {
+					linkCost = nexthops[i].getCost();
+					NFD_LOG_INFO("m_fib_list: name=" << routerName << ", FaceId = " << faceId << ", cost = " << linkCost);
+					break;
+				}
+			}
+	    }
+	}
 	//It is shared data from neighbors
 	NFD_LOG_INFO("getSharedMPPTable: <ProudToShare> FaceId = " << faceId << ", Name = " << namePrefix);
 
@@ -528,10 +663,10 @@ void Forwarder::getSharedMPPTable(const FaceId& faceId, const Data& data) {
 
 			if(toggleBit == 0) {//probability
 				pVal 		 = std::stoi(nPrefix);
-				NFD_LOG_INFO("...pVal = " << pVal);
+				//NFD_LOG_INFO("...pVal = " << pVal);
 				probability  = 100;
-				cost 		 = (pVal & 0xFFFF);
-				hop 		 = ((pVal >> 16)  & 0xFFFF) + 1; //increment hop by 1
+				cost 		 = (pVal & 0x0000FFFF) + linkCost;
+				hop 		 = (pVal >> 16) + 1; //increment hop by 1
 				toggleBit = 1;
 			}
 			else {//namePrefix
@@ -550,21 +685,7 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const Data& data) {
 	std::ostringstream 	osContentStream;
 	std::string 		namePrefix;
 	size_t				pos;
-	unsigned int isNeighbor = 0;
-	/*--------------------------*/
-	if(m_fib.m_neighborsList.size() > 0 ) {
-		for(FaceId i: m_fib.m_neighborsList) {
-			if(i == faceId) {
-				isNeighbor = 1;
-				break;
-			}
-		}
-	}
 
-	if (isNeighbor == 0) {
-		//NFD_LOG_INFO("...Not a Neigbor,  FaceId = " << faceId);
-		return;
-	}
 	//get the segment portion from the name prefix
 	osNamePrefix << data.getName();
 	namePrefix 	= osNamePrefix.str();
@@ -582,12 +703,13 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const Data& data) {
 		namePrefix = namePrefix.substr(0, pos);
 	}
 	//send the faceId and name prefix to insert into the table
-	addMPPStatisticTable(faceId, namePrefix, 100 , 10, 0);
+	addMPPStatisticTable(faceId, namePrefix, 100 , 0, 0);
 
 }
 void Forwarder::addMPPStatisticTable(const FaceId& faceId, const std::string namePrefix, const uint32_t probability, const uint32_t cost, const uint32_t hop) {
 	size_t	pos;
-	NFD_LOG_INFO("addMPPStatisticTable: FaceId = " << faceId <<", Name = " << namePrefix);
+	NFD_LOG_INFO("...Name = " << namePrefix << "FaceId = " << faceId <<
+				 ", hop = " << hop << ", cost = " << cost);
 	//check the faceid if it is a valid neighbor
 
 	//check the table if incoming interest already exists
@@ -595,7 +717,7 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const std::string nam
 		pos = namePrefix.find(m_fib.m_MPPTable[i].name);
 		if(pos != std::string::npos){
 			//compare the values
-			if((hop) < (m_fib.m_MPPTable[i].hop)) {
+			if((hop*cost) < (m_fib.m_MPPTable[i].hop*m_fib.m_MPPTable[i].cost)) {
 
 				m_fib.m_MPPTable[i].faceId 		= faceId;
 				m_fib.m_MPPTable[i].hop	 		= hop;
@@ -605,6 +727,8 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const std::string nam
 				m_fib.m_MPPTable[i].inUse		= 0;
 				//NFD_LOG_INFO("...Updated.");
 				dumpMPPTable();
+				//share MPP Table
+				sendMPPTableToNeighbors(faceId);
 			}
 
 			//return if there is match
@@ -628,16 +752,12 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const std::string nam
     	node.inUse			= 0;
     	m_fib.m_MPPTable.push_back(node);
     	dumpMPPTable();
+    	//share MPP Table
+    	sendMPPTableToNeighbors(faceId);
     }
     catch (std::bad_alloc& ba) {
     	NFD_LOG_DEBUG("...bad_alloc error.");
     	return;
-    }
-
-    //NFD_LOG_INFO("...New Entry.");
-    //advertise the mpp table with depth 50 hops
-    if(hop <= 50) {
-    	sendMPPTableToNeighbors(faceId);
     }
 }
 //PIT entries for the data segments coming producer
@@ -668,13 +788,13 @@ void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
 	}
 	pos = namePrefix.find("/%00");
 	if(pos == std::string::npos) {
-		NFD_LOG_DEBUG("addInterestCacheTable: Error npos");
+		NFD_LOG_INFO("addInterestCacheTable: Error npos");
 		return;
 	}
 	//check is valid segment
 	segment_str = namePrefix.substr(pos);
 	if(segment_str.length() != 7) {
-		NFD_LOG_DEBUG("addInterestCacheTable: Error sizeLessThan7");
+		NFD_LOG_INFO("addInterestCacheTable: Error sizeLessThan7");
 		return;
 	}
 	//buffer{segment_str.substr(5,5)}; buffer >> hex >> segment_no;
@@ -682,9 +802,9 @@ void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
 	//Everything is okay, now add the name into table
 	NFD_LOG_INFO("addInterestCacheTable: <inTable> FaceId = " << faceId <<", Name = " << name);
 	//check the table if incoming interest already exists
-	for(struct fib::M_CacheTable_Struct n: m_fib.m_CacheTable) {
-		if(!n.name.compare(newPrefix)) {
-			n.faceIdList.push_back(faceId);
+	for(int i = 0; i < m_fib.m_CacheTable.size(); i++) {
+		if(!m_fib.m_CacheTable[i].name.compare(newPrefix)) {
+			m_fib.m_CacheTable[i].faceIdList.push_back(faceId);
 			NFD_LOG_INFO("addInterestCacheTable:Update.");
 			return;
 		}
@@ -798,7 +918,7 @@ void Forwarder::sendOtherDataSegments(Face& outFace, const Data& data) {
 	}
 }
 
-void Forwarder::sendRelativeDatas(Face& inFace, const Name& name){
+/*void Forwarder::sendRelativeDatas(Face& inFace, const Name& name){
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
 	std::vector<std::string> vPrefix;
@@ -833,7 +953,7 @@ void Forwarder::sendRelativeDatas(Face& inFace, const Name& name){
 	}
 
 
-}
+}*/
 
 void Forwarder::dumpCacheTable() {
 	NFD_LOG_DEBUG("-----------dumpCacheTable In-----------");
@@ -886,7 +1006,7 @@ Forwarder::onIncomingData(Face& inFace, const Data& data)
   getSharedMPPTable(inFace.getId(), data);
   /**********************************************/
   /***********Check MPP Table********************/
-  checkMPPRecordInUseFlag(data.getName(), 1);
+  checkMPPRecordInUseFlag(data.getName(), 1, inFace.getId());
   /**********************************************/
   /***********************************************************/
   // /localhost scope control
@@ -1038,7 +1158,7 @@ Forwarder::onIncomingNack(Face& inFace, const lp::Nack& nack)
   ++m_counters.nInNacks;
   /**********************************************/
   /***********Check MPP Table********************/
-  checkMPPRecordInUseFlag(nack.getInterest().getName(), 0);
+  checkMPPRecordInUseFlag(nack.getInterest().getName(), 0, inFace.getId());
   /**********************************************/
   // if multi-access or ad hoc face, drop
   if (inFace.getLinkType() != ndn::nfd::LINK_TYPE_POINT_TO_POINT) {

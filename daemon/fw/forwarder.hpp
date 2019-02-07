@@ -108,16 +108,22 @@ public: // forwarding entrypoints and tables
   updateNeighborsList(const FaceId& faceId, const Name& name);
   void
   sendMPPTableToNeighbors(const FaceId& faceId);
+  int
+  isFaceInNeighborList(const FaceId& faceId);
   FaceId
   findFaceIdInMMPTable(const Interest& interest, int* nackElem );
   void
-  checkMPPRecordInUseFlag(const Name& name, const int type);
+  checkMPPRecordInUseFlag(const Name& name, const int type, const FaceId& faceId);
+  int
+  isNamePrefixExistInCalcProbTable(const std::string name);
   FaceId
   calculateProbabilityForIncomingInterest(const Interest& interest);
   void
   printNamePrefix(const std::string info, const FaceId& faceId, const Name& name);
   void
   dumpMPPTable();
+  std::string
+  getRouterName(const FaceId& faceId);
   void
   getSharedMPPTable(const FaceId& faceId, const Data& data);
   void
@@ -134,8 +140,8 @@ public: // forwarding entrypoints and tables
   forwardDataSegments(const Data& data);
   void
   sendOtherDataSegments(Face& outFace, const Data& data);
-  void
-  sendRelativeDatas(Face& inFace, const Name& name);
+  //void
+  //sendRelativeDatas(Face& inFace, const Name& name);
   void
   dumpCacheTable();
   std::vector<std::string> nameBlackList{"/localhost/","/localhop/", "/NLSR/LSA", "faces/events","/KEY", "/nlsr/sync/",

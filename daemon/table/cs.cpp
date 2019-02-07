@@ -241,7 +241,7 @@ Cs::checkContentStoreTable(std::vector<ndn::Data> &vdata, std::string key, int i
 	}
 	return false;
 }
-void
+/*void
 Cs::getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Data> &vdata){
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
@@ -274,7 +274,7 @@ Cs::getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Dat
 	catch(std::exception e) {
 		//do nothing
 	}
-}
+}*/
 
 int
 Cs::matchingChar(std::string const &s1, std::string const &s2) {
