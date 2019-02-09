@@ -204,20 +204,23 @@ Cs::dump()
   }
 }
 /****************************************/
-bool
-Cs::checkContentStoreTable(std::vector<ndn::Data> &vdata, std::string key, int in_seg_no) {
+void
+Cs::lookOtherSegmentsInContentStoreTable(std::vector<ndn::Data> *vdata, std::string key, int in_seg_no) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
 	std::string 		segment_str;
 	size_t				pos;
-	int segment_no = 0,wc = 0;
+	int 				segment_no = 0;
 	//get the segment portion from the name prefix
+	NFD_LOG_INFO("lookOtherSegmentsInContentStoreTable: ");
 	try {
 		for (const EntryImpl& entry : m_table) {
+			osNamePrefix.str("");
+			osNamePrefix.clear();
 			osNamePrefix << entry.getData().getName();
 			namePrefix 	= osNamePrefix.str();
-			wc = matchingChar(key, namePrefix);
-			if(wc == key.length()) {//match
+			pos = namePrefix.find(key);
+			if(pos != std::string::npos) {
 				//check segment no
 				pos = namePrefix.find("/%00");
 				if(pos == std::string::npos) {
@@ -229,52 +232,18 @@ Cs::checkContentStoreTable(std::vector<ndn::Data> &vdata, std::string key, int i
 					continue;
 				}
 				//get segment no
+				NFD_LOG_INFO("...entry = " << namePrefix << ", key = " << key << ", in_seg_no = " << in_seg_no);
 				segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
-				if(in_seg_no != segment_no) {
-					vdata.push_back(entry.getData());
+				if(in_seg_no < segment_no) {
+					vdata->push_back(entry.getData());
 				}
 			}
-		}
+		}// CS entries
 	}
 	catch(std::exception e) {
 		//do nothing
 	}
-	return false;
 }
-/*void
-Cs::getRelativeDatas(std::vector<std::string> vIntNameList, std::vector<ndn::Data> &vdata){
-	std::ostringstream 	osNamePrefix;
-	std::string 		namePrefix;
-	int wc = 0, total = 0, counter = 0;
-	//get the segment portion from the name prefix
-	try {
-		counter = 0;
-		for (const EntryImpl& entry : m_table) {
-			osNamePrefix << entry.getData().getName();
-			namePrefix 	= osNamePrefix.str();
-			total = 0; //clear total for name
-			for(std::string i: vIntNameList) {
-				wc = matchingChar(i, namePrefix);
-				if(wc == i.length()){
-					total++;
-				}
-				else {
-					break;
-				}
-			}
-			if(total > 2) {
-				vdata.push_back(entry.getData());
-			}
-			if(counter++ > 2) {
-				break;
-			}
-		}
-
-	}
-	catch(std::exception e) {
-		//do nothing
-	}
-}*/
 
 int
 Cs::matchingChar(std::string const &s1, std::string const &s2) {

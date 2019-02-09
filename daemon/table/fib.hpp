@@ -48,9 +48,11 @@ namespace fib {
 /*structure for new caching strategy*/
 struct M_CacheTable_Struct {
 	std::string 		name;
-	std::vector<FaceId> faceIdList;
+	FaceId 				inFaceId;
+	int					reqSegment;
+	int					nonce;
 	std::vector<int>	segmentUpList;
-	std::time_t 		updateTime;
+	std::time_t 		createTime;
 };
 /****************************/
 /****************************/

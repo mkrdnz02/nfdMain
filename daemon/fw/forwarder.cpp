@@ -187,6 +187,11 @@ Forwarder::onContentStoreMiss(const Face& inFace, const shared_ptr<pit::Entry>& 
   auto lastExpiryFromNow = lastExpiring->getExpiry() - time::steady_clock::now();
   this->setExpiryTimer(pitEntry, time::duration_cast<time::milliseconds>(lastExpiryFromNow));
 
+  /*****************************************************/
+  //Segmented Caching Strategy
+  insertCacheTable(inFace.getId(), interest.getName(), interest.getNonce());
+  /*****************************************************/
+
   // has NextHopFaceId?
   shared_ptr<lp::NextHopFaceIdTag> nextHopTag = interest.getTag<lp::NextHopFaceIdTag>();
   if (nextHopTag != nullptr) {
@@ -238,6 +243,7 @@ Forwarder::onContentStoreMiss(const Face& inFace, const shared_ptr<pit::Entry>& 
   // dispatch to strategy: after incoming Interest
   this->dispatchToStrategy(*pitEntry,
     [&] (fw::Strategy& strategy) { strategy.afterReceiveInterest(inFace, interest, pitEntry); });
+
 }
 
 void
@@ -259,13 +265,18 @@ Forwarder::onContentStoreHit(const Face& inFace, const shared_ptr<pit::Entry>& p
   // dispatch to strategy: after Content Store hit
   this->dispatchToStrategy(*pitEntry,
     [&] (fw::Strategy& strategy) { strategy.afterContentStoreHit(pitEntry, inFace, data); });
+
+  /****************************************/
+  //Caching Strategy
+  processHitDataSegment(inFace.getId(), data);
+  /****************************************/
 }
 /****************************************/
 void Forwarder::updateNeighborsList(const FaceId& faceId, const Name& name) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix, routerName;
 	size_t				pos;
-	int 				isFound, linkCost;
+	int 				isFound, linkCost = 0xFF;
 	/*--------------------------*/
 	osNamePrefix << name;
 	namePrefix 	= osNamePrefix.str();
@@ -335,7 +346,7 @@ void Forwarder::sendMPPTableToNeighbors(const FaceId& faceId) {
 	for(struct fib::M_MPPTable_Struct node: m_fib.m_MPPTable){
 
 		pVal  = (uint32_t)(node.hop << 16) | node.cost;
-		NFD_LOG_INFO("sendMPPTableToNeighbors: node.cost= " << node.cost << ", node.hop= " << node.hop << ", pVal = " << pVal);
+		//NFD_LOG_INFO("sendMPPTableToNeighbors: node.cost= " << node.cost << ", node.hop= " << node.hop << ", pVal = " << pVal);
 		mppTableStr += to_string(pVal) + "#" + node.name + "#";
 
 	}
@@ -361,7 +372,7 @@ void Forwarder::sendMPPTableToNeighbors(const FaceId& faceId) {
 }
 
 int Forwarder::isFaceInNeighborList(const FaceId& faceId) {
-	unsigned int isNeighbor = 0;
+
 	if(m_fib.m_neighborsList.size() > 0 ) {
 		for(struct fib::M_FaceId_Name_Struct node: m_fib.m_neighborsList) {
 			if(node.faceId == faceId) {
@@ -566,12 +577,6 @@ void Forwarder::dumpMPPTable() {
 						 ", cost = " << n.cost << ", nackCnt = " << n.nackCnt);
 		}
 	}
-	/*if(m_fib.m_neighborsList.size() > 0 ) {
-		NFD_LOG_INFO("Neighbors:");
-		for(FaceId i: m_fib.m_neighborsList) {
-			NFD_LOG_INFO("...Neighbor FaceId = " << i);
-		}
-	}*/
 }
 std::string Forwarder::getRouterName(const FaceId& faceId) {
 
@@ -708,8 +713,8 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const Data& data) {
 }
 void Forwarder::addMPPStatisticTable(const FaceId& faceId, const std::string namePrefix, const uint32_t probability, const uint32_t cost, const uint32_t hop) {
 	size_t	pos;
-	NFD_LOG_INFO("...Name = " << namePrefix << "FaceId = " << faceId <<
-				 ", hop = " << hop << ", cost = " << cost);
+	//NFD_LOG_INFO("...Name = " << namePrefix << ", FaceId = " << faceId <<
+	//			 ", hop = " << hop << ", cost = " << cost);
 	//check the faceid if it is a valid neighbor
 
 	//check the table if incoming interest already exists
@@ -760,20 +765,55 @@ void Forwarder::addMPPStatisticTable(const FaceId& faceId, const std::string nam
     	return;
     }
 }
-//PIT entries for the data segments coming producer
-void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
+
+int Forwarder::isDataSegmented(const Name& name) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
 	std::string 		segment_str;
-	std::string			newPrefix;
 	size_t				pos;
+	int					segment_no;
+	/*--------------------------*/
+	//get the segment portion from the name prefix
+	osNamePrefix << name;
+	namePrefix 	= osNamePrefix.str();
+	//check black name list prefix
+	for(std::string l: nameBlackList){
+		pos = namePrefix.find(l);
+		if(pos != std::string::npos){
+			return 0;
+		}
+	}
+
+	pos = namePrefix.find("/%00");
+	if(pos == std::string::npos) {
+		return 0;
+	}
+	//check is valid segment
+	segment_str = namePrefix.substr(pos);
+	if(segment_str.length() != 7) {
+		return 0;
+	}
+
+	return 1;
+}
+//PIT entries for the data segments coming producer
+void Forwarder::insertCacheTable(const FaceId& faceId, const Name& name, const uint32_t nonce){
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	std::string 		segment_str;
+	size_t				pos;
+	int					segment_no;
 	/*--------------------------*/
 	/*remove the expired records*/
 	/*--------------------------*/
 	for(unsigned int i = 0; i < m_fib.m_CacheTable.size(); i++) {
-		if(std::abs(m_fib.m_CacheTable[i].updateTime - std::time(0)) > 600){ //10min
+		if(std::abs(m_fib.m_CacheTable[i].createTime - std::time(0)) > 600){ //10min
 			m_fib.m_CacheTable.erase(m_fib.m_CacheTable.begin() + i);
 		}
+	}
+	//check neighbor
+	if (isFaceInNeighborList(faceId) == 0) {
+		return;
 	}
 	/*--------------------------*/
 	//get the segment portion from the name prefix
@@ -786,112 +826,131 @@ void Forwarder::addInterestCacheTable(const FaceId& faceId, const Name& name){
 			return;
 		}
 	}
+
 	pos = namePrefix.find("/%00");
 	if(pos == std::string::npos) {
-		NFD_LOG_INFO("addInterestCacheTable: Error npos");
+		NFD_LOG_DEBUG("insertCacheTable: Error npos");
 		return;
 	}
 	//check is valid segment
 	segment_str = namePrefix.substr(pos);
 	if(segment_str.length() != 7) {
-		NFD_LOG_INFO("addInterestCacheTable: Error sizeLessThan7");
+		NFD_LOG_DEBUG("insertCacheTable: Error sizeLessThan7");
 		return;
 	}
+	//get segment no
+	segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
 	//buffer{segment_str.substr(5,5)}; buffer >> hex >> segment_no;
-	newPrefix = namePrefix.substr(0, pos + 4);
-	//Everything is okay, now add the name into table
-	NFD_LOG_INFO("addInterestCacheTable: <inTable> FaceId = " << faceId <<", Name = " << name);
-	//check the table if incoming interest already exists
+	namePrefix = namePrefix.substr(0, pos);
+	//check inFace
 	for(int i = 0; i < m_fib.m_CacheTable.size(); i++) {
-		if(!m_fib.m_CacheTable[i].name.compare(newPrefix)) {
-			m_fib.m_CacheTable[i].faceIdList.push_back(faceId);
-			NFD_LOG_INFO("addInterestCacheTable:Update.");
+
+		pos = namePrefix.find(m_fib.m_CacheTable[i].name);
+		if((pos != std::string::npos) && (m_fib.m_CacheTable[i].inFaceId == faceId)){
 			return;
 		}
 	}
+	NFD_LOG_INFO("insertCacheTable: Name = " << namePrefix << ", FaceId = " << faceId);
+	//Everything is okay, now add the name into table
+	NFD_LOG_INFO("...Name = " << namePrefix << ", FaceId = " << faceId << ", ReqSegment = " << segment_no);
+
 	//otherwise create a new node
     try {
     	struct fib::M_CacheTable_Struct node;
-    	node.name 		= newPrefix;
-    	node.faceIdList.push_back(faceId);
-    	node.updateTime = std::time(0); //timestamp for record deletiton
+    	node.name 		= namePrefix;
+    	node.inFaceId	= faceId;
+    	node.nonce		= nonce;
+    	node.reqSegment	= segment_no;
+    	node.createTime = std::time(0); //timestamp for record deletiton
     	m_fib.m_CacheTable.push_back(node);
     }
     catch (std::bad_alloc& ba) {
-    	NFD_LOG_DEBUG("addInterestCacheTable: bad_alloc error.");
+    	NFD_LOG_DEBUG("insertCacheTable: bad_alloc error.");
     	return;
     }
-
-    NFD_LOG_INFO("addInterestCacheTable: New Entry.");
 }
 /*Find the list of the requester for the original data and send the rest of the segments*/
-bool Forwarder::forwardDataSegments(const Data& data) {
+void Forwarder::processHitDataSegment(const FaceId& faceId, const Data& data) {
 	std::ostringstream 	osNamePrefix;
 	std::string 		namePrefix;
 	std::string 		segment_str;
-	std::string			newPrefix;
-	size_t				pos;
-	int					segment_no = 0;
-	//get the segment portion from the name prefix
-	try {
-		osNamePrefix << data.getName();
-		namePrefix 	= osNamePrefix.str();
-		pos 		= namePrefix.find("/%00");
-		if(pos == std::string::npos) {
-			NFD_LOG_DEBUG("forwardDataSegments: Error up_npos");
-			return false;
-		}
-		//check is valid segment
-		segment_str = namePrefix.substr(pos);
-		if(segment_str.length() != 7) {
-			NFD_LOG_DEBUG("forwardDataSegments: Error up_sizeLessThan7");
-			return false;
-		}
-		newPrefix = namePrefix.substr(0, pos + 4);
-		for(struct fib::M_CacheTable_Struct node: m_fib.m_CacheTable) {
-			if(!node.name.compare(newPrefix)) {
-				//update timestamp for this node
-				node.updateTime = std::time(0);
-				//check segment no
-				segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
-				if(std::find(node.segmentUpList.begin(), node.segmentUpList.end(), segment_no) != node.segmentUpList.end() ) {
-					NFD_LOG_INFO("forwardDataSegments: Already Sent: segment_no = " << segment_no);
-					return false;
-				}
-				NFD_LOG_INFO("forwardDataSegments: <popMatch> data name = " << data.getName());
-				for(FaceId fid: node.faceIdList) {
-					Face *outFace = m_faceTable.get(fid);
-					//send the data to the outputstream
-					outFace->sendData(data);
-					NFD_LOG_INFO("forwardDataSegments:Forwarded FaceId = " << fid);
-				}
-				node.segmentUpList.push_back(segment_no);
-				return true;
-			}
-		}
-	}
-	catch(std::exception e) {
-		//do nothing
-	}
-
-	NFD_LOG_DEBUG("forwardDataSegments: No match.");
-	return false;
-}
-
-void Forwarder::sendOtherDataSegments(Face& outFace, const Data& data) {
-	std::ostringstream 	osNamePrefix;
-	std::string 		namePrefix;
-	std::string 		segment_str;
-	std::string			newPrefix;
-	std::string			keyPrefix;
 	size_t				pos;
 	int					segment_no = 0;
 	std::vector<ndn::Data> segDataList;
 	//get the segment portion from the name prefix
 	try {
+
+		//check neighbor
+		if (isFaceInNeighborList(faceId) == 0) {
+			return;
+		}
+
 		osNamePrefix << data.getName();
 		namePrefix 	= osNamePrefix.str();
-		pos 		= namePrefix.find("/%00");
+		//check black name list prefix
+		for(std::string l: nameBlackList){
+			pos = namePrefix.find(l);
+			if(pos != std::string::npos){
+				return;
+			}
+		}
+
+		pos = namePrefix.find("/%00");
+		if(pos == std::string::npos) {
+			NFD_LOG_INFO("...: Error up_npos");
+			return;
+		}
+		//check is valid segment
+		segment_str = namePrefix.substr(pos);
+		if(segment_str.length() != 7) {
+			NFD_LOG_INFO("...: Error up_sizeLessThan7: " << segment_str.length());
+			return;
+		}
+
+		namePrefix = namePrefix.substr(0, pos);
+		segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
+
+		NFD_LOG_INFO("processHitDataSegment: searching: name = " << namePrefix << ", outFace = " << faceId << ", req_seg = " << segment_no);
+		//get datas from Content Store
+		m_cs.lookOtherSegmentsInContentStoreTable(&segDataList, namePrefix, segment_no);
+		for(int i = 0; i < segDataList.size(); i++){
+
+			Face *outFace 	= m_faceTable.get(faceId);
+			if(outFace != nullptr) {
+				outFace->sendData(segDataList[i]);
+				++m_counters.nOutData;
+				NFD_LOG_INFO("...found: name = " << segDataList[i].getName() << ", outFace = " << faceId);
+
+			}
+		}
+
+	}
+	catch(std::exception e) {
+		//do nothing
+	}
+}
+
+void Forwarder::processIncomingDataSegments(const Data& data) {
+	std::ostringstream 	osNamePrefix;
+	std::string 		namePrefix;
+	std::string 		segment_str;
+	std::string			keyPrefix;
+	size_t				pos;
+	int					segment_no = 0, isSegmentNoExist;
+
+	//get the segment portion from the name prefix
+	try {
+		osNamePrefix << data.getName();
+		namePrefix 	= osNamePrefix.str();
+		//check black name list prefix
+		for(std::string l: nameBlackList){
+			pos = namePrefix.find(l);
+			if(pos != std::string::npos){
+				return;
+			}
+		}
+
+		pos = namePrefix.find("/%00");
 		if(pos == std::string::npos) {
 			NFD_LOG_DEBUG("sendOtherDataSegments: Error hit_npos");
 			return;
@@ -902,68 +961,43 @@ void Forwarder::sendOtherDataSegments(Face& outFace, const Data& data) {
 			NFD_LOG_DEBUG("sendOtherDataSegments: Error hit_sizeLessThan7");
 			return;
 		}
-		newPrefix = namePrefix.substr(0, pos + 4);
-		//get segment no
+
+		namePrefix = namePrefix.substr(0, pos);
 		segment_no = std::stoi(segment_str.substr(5,5), 0 , 16);
-		//check the CS for the next segment
-		m_cs.checkContentStoreTable(segDataList, newPrefix, segment_no);
-		for(ndn::Data seg_data: segDataList) {
-			//send to outFace
-			NFD_LOG_INFO("sendOtherDataSegments: <seg_hit> name = " << seg_data.getName());
-			outFace.sendData(seg_data);//send
-		}
-	}
-	catch(std::exception e) {
-		//do nothing
-	}
-}
 
-/*void Forwarder::sendRelativeDatas(Face& inFace, const Name& name){
-	std::ostringstream 	osNamePrefix;
-	std::string 		namePrefix;
-	std::vector<std::string> vPrefix;
-	std::vector<ndn::Data> v_RelativeData;
-	size_t				pos;
-	//get the segment portion from the name prefix
-	try {
-		osNamePrefix << name;
-		namePrefix 	= osNamePrefix.str();
-		//check black name list prefix
-		for(std::string l: nameBlackList){
-			pos = namePrefix.find(l);
+		NFD_LOG_INFO("processIncomingDataSegments: name = " << namePrefix << ", seg = " << segment_no);
+
+		for(int i = 0; i < m_fib.m_CacheTable.size(); i++) {
+
+			pos = namePrefix.find(m_fib.m_CacheTable[i].name);
 			if(pos != std::string::npos){
-				return;
-			}
-		}
-		boost::split(vPrefix, namePrefix, boost::is_any_of("/"));
-		//get relative datas from the content store
-		m_cs.getRelativeDatas(vPrefix, v_RelativeData);
+				isSegmentNoExist = 0;
+				/*for(int sentSegments: m_fib.m_CacheTable[i].segmentUpList) {
+					if(segment_no == sentSegments) {
+						isSegmentNoExist = 1;
+					}
+				}*/
 
-		if(v_RelativeData.size() > 0 ) {
-			NFD_LOG_INFO("sendRelativeDatas: <parent_int> name = " << namePrefix);
-		}
-		for(ndn::Data rdata: v_RelativeData) {
-			//send to outFace
-			NFD_LOG_INFO("sendRelativeDatas: <relative_hit> name = " << rdata.getName());
-			inFace.sendData(rdata);//send
-		}
+				//send the data to the up stream if the segment no does not exist.
+				if(isSegmentNoExist == 0) {
+					FaceId fid 		= m_fib.m_CacheTable[i].inFaceId;
+					Face *outFace 	= m_faceTable.get(fid);
+					if(outFace != nullptr) {
+						//send
+						outFace->sendData(data);
+						m_fib.m_CacheTable[i].segmentUpList.push_back(segment_no);
+						NFD_LOG_INFO("...sent: name = " << namePrefix << ", outFace = " << fid << ", seg = " << segment_no);
+					}
+				}
+
+			}
+		}//m_fib.m_CacheTable entries
 	}
 	catch(std::exception e) {
 		//do nothing
 	}
-
-
-}*/
-
-void Forwarder::dumpCacheTable() {
-	NFD_LOG_DEBUG("-----------dumpCacheTable In-----------");
-	for(struct fib::M_CacheTable_Struct n: m_fib.m_CacheTable) {
-		for(FaceId i: n.faceIdList) {
-			NFD_LOG_DEBUG("Name = " << n.name << ", inFaceId = " << i);
-		}
-	}
-	NFD_LOG_DEBUG("-----------dumpCacheTable Out-----------");
 }
+
 /****************************************/
 void
 Forwarder::onOutgoingInterest(const shared_ptr<pit::Entry>& pitEntry, Face& outFace, const Interest& interest)
@@ -1105,19 +1139,25 @@ void
 Forwarder::onDataUnsolicited(Face& inFace, const Data& data)
 {
   bool isDataNotCached;
-  //isDataNotCached = true;
+  int isDataCached = 0;
   // accept to cache?
   fw::UnsolicitedDataDecision decision = m_unsolicitedDataPolicy->decide(inFace, data);
   if (decision == fw::UnsolicitedDataDecision::CACHE) {
     // CS insert
     m_cs.insert(data, true);
 
-    //isDataNotCached = false;
+    isDataCached = 1;
   }
 
-  /*if(forwardDataSegments(data) && isDataNotCached) { //send the data to upstream
+  processIncomingDataSegments(data);
+
+  if( ( isFaceInNeighborList(inFace.getId()) == 1) &&
+	  ( isDataCached == 0) &&
+	  ( isDataSegmented(data.getName()) == 1) ) {
+
 	  m_cs.insert(data, true);
-  }*/
+  }
+
   NFD_LOG_DEBUG("onDataUnsolicited face=" << inFace.getId() <<
                 " data=" << data.getName() <<
                 " decision=" << decision);
@@ -1147,7 +1187,6 @@ Forwarder::onOutgoingData(const Data& data, Face& outFace)
   // send Data
   outFace.sendData(data);
   ++m_counters.nOutData;
-  sendOtherDataSegments(outFace, data);
 }
 
 void

@@ -134,16 +134,15 @@ public: // forwarding entrypoints and tables
 						 const uint32_t probability,
 						 const uint32_t cost,
 						 const uint32_t hop);
+  int
+  isDataSegmented(const Name& name);
   void
-  addInterestCacheTable(const FaceId& faceId, const Name& name);
-  bool
-  forwardDataSegments(const Data& data);
+  insertCacheTable(const FaceId& faceId, const Name& name, const uint32_t nonce);
   void
-  sendOtherDataSegments(Face& outFace, const Data& data);
-  //void
-  //sendRelativeDatas(Face& inFace, const Name& name);
+  processHitDataSegment(const FaceId& outFace, const Data& data);
   void
-  dumpCacheTable();
+  processIncomingDataSegments(const Data& data);
+
   std::vector<std::string> nameBlackList{"/localhost/","/localhop/", "/NLSR/LSA", "faces/events","/KEY", "/nlsr/sync/",
 	  	  	  	  	  	  	  	  	  	  "/nfd/fib", "/nlsr/INFO/", "Router/cs/", "nfd/faces", "nfd/rib"};
   /** \brief start incoming Interest processing
