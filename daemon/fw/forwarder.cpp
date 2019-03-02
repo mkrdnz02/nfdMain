@@ -300,24 +300,7 @@ void Forwarder::updateNeighborsList(const FaceId& faceId, const Name& name) {
 		return;
 	}
 
-	for (const auto& entry : m_fib) {
-
-	    const auto& nexthops = entry.getNextHops();
-	    //get the name of the fib entry
-	    osNamePrefix.str("");
-	    osNamePrefix.clear();
-	    osNamePrefix << entry.getPrefix();
-	    routerName = osNamePrefix.str();
-
-	    if ( routerName.compare(namePrefix) == 0 ) {
-	    	for (int i = 0; i < nexthops.size(); i++) {
-				if(faceId == nexthops[i].getFace().getId()) {
-					linkCost = nexthops[i].getCost();
-					break;
-				}
-			}
-	    }
-	}
+	linkCost = getLinkCostForThisHop(faceId);
 
 	if(linkCost == 0 || linkCost == 32766) {
 		return;
@@ -566,7 +549,7 @@ void Forwarder::printNamePrefix(const std::string info, const FaceId& faceId, co
 		}
 	}
 	// receive Interest
-	NFD_LOG_INFO(info << ", face=" << faceId <<  ", interest=" << name);
+	NFD_LOG_INFO(info << ", face=" << faceId <<  ", name=" << name);
 }
 void Forwarder::dumpMPPTable() {
 	if(m_fib.m_MPPTable.size() > 0) {
@@ -586,6 +569,33 @@ std::string Forwarder::getRouterName(const FaceId& faceId) {
 		}
 	}
 	return "null";
+}
+
+uint32_t Forwarder::getLinkCostForThisHop(const FaceId& faceId) {
+	std::ostringstream 	osNamePrefix;
+	std::string 		routerName;
+	uint32_t linkCost = 0xFFFF;
+	//*******************************************
+	for (const auto& entry : m_fib) {
+	    const auto& nexthops = entry.getNextHops();
+	    //get the name of the fib entry
+	    osNamePrefix.str("");
+	    osNamePrefix.clear();
+	    osNamePrefix << entry.getPrefix();
+	    routerName = osNamePrefix.str();
+
+	    if ( routerName.compare(getRouterName(faceId)) == 0 ) {
+	    	for (int i = 0; i < nexthops.size(); i++) {
+				if(faceId == nexthops[i].getFace().getId()) {
+					linkCost = nexthops[i].getCost();
+					NFD_LOG_INFO("m_fib_list: name=" << routerName << ", FaceId = " << faceId << ", cost = " << linkCost);
+					break;
+				}
+			}
+	    }
+	}
+
+	return linkCost;
 }
 
 void Forwarder::getSharedMPPTable(const FaceId& faceId, const Data& data) {
@@ -609,25 +619,11 @@ void Forwarder::getSharedMPPTable(const FaceId& faceId, const Data& data) {
 	}
 
 	//*******************************************
-	for (const auto& entry : m_fib) {
+	linkCost = getLinkCostForThisHop(faceId);
+	//NFD_LOG_INFO("m_fib_list: name=" << routerName << ", FaceId = " << faceId << ", cost = " << linkCost);
 
-	    const auto& nexthops = entry.getNextHops();
-	    //get the name of the fib entry
-	    osNamePrefix.str("");
-	    osNamePrefix.clear();
-	    osNamePrefix << entry.getPrefix();
-	    routerName = osNamePrefix.str();
 
-	    if ( routerName.compare(getRouterName(faceId)) == 0 ) {
-	    	for (int i = 0; i < nexthops.size(); i++) {
-				if(faceId == nexthops[i].getFace().getId()) {
-					linkCost = nexthops[i].getCost();
-					NFD_LOG_INFO("m_fib_list: name=" << routerName << ", FaceId = " << faceId << ", cost = " << linkCost);
-					break;
-				}
-			}
-	    }
-	}
+
 	//It is shared data from neighbors
 	NFD_LOG_INFO("getSharedMPPTable: <ProudToShare> FaceId = " << faceId << ", Name = " << namePrefix);
 
@@ -1035,6 +1031,24 @@ Forwarder::onIncomingData(Face& inFace, const Data& data)
   data.setTag(make_shared<lp::IncomingFaceIdTag>(inFace.getId()));
   ++m_counters.nInData;
   /***********************************************************/
+  uint32_t dataPathCost = getLinkCostForThisHop(inFace.getId());
+  int dataSavePolicyFlag = 0;
+  shared_ptr<lp::DataPathCostTag> tag_ptr = data.getTag<lp::DataPathCostTag>();
+  if (tag_ptr != nullptr) {
+	  dataPathCost = (tag_ptr->get() + dataPathCost);
+	  if(dataPathCost > 100) {
+		  dataSavePolicyFlag = 1;
+		  data.setTag(make_shared<lp::DataPathCostTag>(0));
+	  }
+	  else {
+		  data.setTag(make_shared<lp::DataPathCostTag>(dataPathCost));
+	  }
+	  NFD_LOG_INFO("onIncomingData data=" << data.getName() << ", costUpTo = " << dataPathCost);
+  }
+  else {
+	  dataSavePolicyFlag = 2;
+  }
+
   printNamePrefix("onIncomingData", inFace.getId(), data.getName());
   updateNeighborsList(inFace.getId(), data.getName());
   getSharedMPPTable(inFace.getId(), data);
@@ -1057,12 +1071,14 @@ Forwarder::onIncomingData(Face& inFace, const Data& data)
   pit::DataMatchResult pitMatches = m_pit.findAllDataMatches(data);
   if (pitMatches.size() == 0) {
     // goto Data unsolicited pipeline
-    this->onDataUnsolicited(inFace, data);
+    this->onDataUnsolicited(inFace, data, dataSavePolicyFlag);
     return;
   }
 
   // CS insert
-  //m_cs.insert(data);
+  if(dataSavePolicyFlag != 0) {
+	  m_cs.insert(data);
+  }
   // when only one PIT entry is matched, trigger strategy: after receive Data
   if (pitMatches.size() == 1) {
     auto& pitEntry = pitMatches.front();
@@ -1136,20 +1152,23 @@ Forwarder::onIncomingData(Face& inFace, const Data& data)
 }
 
 void
-Forwarder::onDataUnsolicited(Face& inFace, const Data& data)
+Forwarder::onDataUnsolicited(Face& inFace, const Data& data, const uint32_t flag)
 {
   bool isDataNotCached;
   int isDataCached = 0;
+
+  processIncomingDataSegments(data);
+  if(flag == 0) {
+	  return;
+  }
+
   // accept to cache?
   fw::UnsolicitedDataDecision decision = m_unsolicitedDataPolicy->decide(inFace, data);
   if (decision == fw::UnsolicitedDataDecision::CACHE) {
     // CS insert
-    m_cs.insert(data, true);
-
+	m_cs.insert(data, true);
     isDataCached = 1;
   }
-
-  processIncomingDataSegments(data);
 
   if( ( isFaceInNeighborList(inFace.getId()) == 1) &&
 	  ( isDataCached == 0) &&

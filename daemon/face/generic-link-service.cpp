@@ -135,7 +135,18 @@ GenericLinkService::encodeLpFields(const ndn::PacketBase& netPkt, lp::Packet& lp
   if (congestionMarkTag != nullptr) {
     lpPacket.add<lp::CongestionMarkField>(*congestionMarkTag);
   }
-
+  /**********************************************/
+  /*
+   * encoding
+   */
+  shared_ptr<lp::DataPathCostTag> dataPathCostTag = netPkt.getTag<lp::DataPathCostTag>();
+  if (dataPathCostTag != nullptr) {
+    lpPacket.add<lp::DataPathCostTagField>(*dataPathCostTag);
+  }
+  else {
+    lpPacket.add<lp::DataPathCostTagField>(0);
+  }
+  /**********************************************/
   if (m_options.allowSelfLearning) {
     shared_ptr<lp::NonDiscoveryTag> nonDiscoveryTag = netPkt.getTag<lp::NonDiscoveryTag>();
     if (nonDiscoveryTag != nullptr) {
@@ -419,6 +430,10 @@ GenericLinkService::decodeData(const Block& netPkt, const lp::Packet& firstPkt)
 
   if (firstPkt.has<lp::CongestionMarkField>()) {
     data->setTag(make_shared<lp::CongestionMarkTag>(firstPkt.get<lp::CongestionMarkField>()));
+  }
+
+  if (firstPkt.has<lp::DataPathCostTagField>()) {
+    data->setTag(make_shared<lp::DataPathCostTag>(firstPkt.get<lp::DataPathCostTagField>()));
   }
 
   if (firstPkt.has<lp::NonDiscoveryField>()) {

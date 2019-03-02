@@ -124,6 +124,8 @@ public: // forwarding entrypoints and tables
   dumpMPPTable();
   std::string
   getRouterName(const FaceId& faceId);
+  uint32_t
+  getLinkCostForThisHop(const FaceId& faceId);
   void
   getSharedMPPTable(const FaceId& faceId, const Data& data);
   void
@@ -263,7 +265,7 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE: // pipelines
   /** \brief Data unsolicited pipeline
    */
   VIRTUAL_WITH_TESTS void
-  onDataUnsolicited(Face& inFace, const Data& data);
+  onDataUnsolicited(Face& inFace, const Data& data, const uint32_t flag);
 
   /** \brief outgoing Data pipeline
    */
